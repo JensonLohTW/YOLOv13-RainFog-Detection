@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────
+# YOLOv13 雨霧天氣物體偵測 - 資料集配置
+# 訓練指令（在 backend/ 目錄下執行）：
+#   uv run yolo train data=../data/datasets/rainfog_detection/data.yaml model=yolov13n.pt
+# ─────────────────────────────────────────────────────────────────
+
+# 資料集根目錄（. 表示本檔案所在目錄，即 rainfog_detection/）
+path: .
+
+# 子目錄路徑（相對於 path）
+train: images/train
+val:   images/val
+test:  images/test   # 可選，無測試集時刪除此行
+
+# ─────────────────────────────────────────────────────────────────
+# 偵測類別清單
+# 順序決定 class_id（從 0 開始），需與標注工具的設定保持一致
+# 支援的標注工具：Roboflow、LabelImg、Label Studio
+#
+# 若使用 COCO 預訓練權重直接推理（不訓練），class_id 對應 COCO 定義：
+#   person=0, bicycle=1, car=2, motorcycle=3, bus=5, truck=7
+# 若自行標注並訓練，請依下方清單重新定義（從 0 起）
+# ─────────────────────────────────────────────────────────────────
+
+nc: 6
+names:
+  - truck        # class_id 0：貨車 / 卡車
+  - person       # class_id 1：行人
+  - bicycle      # class_id 2：自行車
+  - car          # class_id 3：轎車 / 乘用車
+  - motorcycle   # class_id 4：摩托車
+  - bus          # class_id 5：公車 / 大客車

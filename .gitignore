@@ -23,7 +23,18 @@ data/results/*
 data/models/*.pt
 
 # 資料集目錄（本地自行準備，不提交至 git）
-data/datasets/rainfog_detection/
+# data.yaml 與目錄骨架（.gitkeep）追蹤；實際影像與標注不提交
+data/datasets/rainfog_detection/images/train/*
+data/datasets/rainfog_detection/images/val/*
+data/datasets/rainfog_detection/images/test/*
+data/datasets/rainfog_detection/labels/train/*
+data/datasets/rainfog_detection/labels/val/*
+data/datasets/rainfog_detection/labels/test/*
+!data/datasets/rainfog_detection/**/.gitkeep
+# dawn-dataset 原始資料（大型，不提交）
+data/datasets/rainfog_detection/dawn-dataset/
+# 訓練輸出目錄
+data/train_runs/
 
 .DS_Store
 .claude/
