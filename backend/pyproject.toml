@@ -1,0 +1,53 @@
+[project]
+name = "rainfog-admin-backend"
+version = "0.1.0"
+description = "Django business backend and FastAPI inference service for YOLOv13 rain/fog detection admin platform."
+readme = "README.md"
+requires-python = ">=3.9,<3.13"
+dependencies = [
+  "Django>=4.2,<5.0",
+  "djangorestframework>=3.15,<4.0",
+  "django-cors-headers>=4.4,<5.0",
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "httpx>=0.27,<1.0",
+  "pydantic>=2.8,<3.0",
+  "pydantic-settings>=2.4,<3.0",
+  "PyMySQL>=1.1,<2.0",
+  "Pillow>=10.4,<11.0",
+  "redis>=5.0,<6.0",
+  "python-dotenv>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+# Real YOLOv13 inference (Phase 4).
+#
+# Windows (win_amd64) / Linux / Apple Silicon Mac:
+#   cd backend && uv sync --extra yolo
+#
+# Intel Mac (macOS x86_64) — PyTorch dropped PyPI wheels for this platform;
+# install torch manually BEFORE running uv sync:
+#   conda install pytorch torchvision cpuonly -c pytorch
+#   pip install ultralytics
+yolo = [
+  "ultralytics>=8.3,<9.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9.0",
+  "pytest-django>=4.9,<5.0",
+  "ruff>=0.5,<1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.dev"
+pythonpath = ["."]
+testpaths = ["tests"]

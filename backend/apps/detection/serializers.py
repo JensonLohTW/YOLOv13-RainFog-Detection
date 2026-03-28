@@ -1,0 +1,135 @@
+from rest_framework import serializers
+
+from apps.media.models import ImageAsset
+from apps.media.serializers import ImageAssetSerializer
+
+from .models import DetectionObject, DetectionTask, InferenceRecord
+
+
+class DetectionTaskCreateSerializer(serializers.Serializer):
+    image_id = serializers.IntegerField()
+    weather_scene = serializers.ChoiceField(choices=DetectionTask.WeatherScene.choices)
+    confidence_threshold = serializers.FloatField(default=0.25, min_value=0.0, max_value=1.0)
+    iou_threshold = serializers.FloatField(default=0.45, min_value=0.0, max_value=1.0)
+
+    def validate_image_id(self, value):  # noqa: ANN001
+        if not ImageAsset.objects.filter(pk=value).exists():
+            raise serializers.ValidationError("Image asset does not exist.")
+        return value
+
+
+class DetectionObjectSerializer(serializers.ModelSerializer):
+    bbox = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DetectionObject
+        fields = [
+            "class_id",
+            "class_name",
+            "confidence",
+            "bbox",
+            "bbox_width",
+            "bbox_height",
+            "area_ratio",
+        ]
+
+    def get_bbox(self, obj):  # noqa: ANN001
+        return [obj.bbox_x1, obj.bbox_y1, obj.bbox_x2, obj.bbox_y2]
+
+
+class InferenceRecordSerializer(serializers.ModelSerializer):
+    objects = DetectionObjectSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = InferenceRecord
+        fields = [
+            "engine_type",
+            "engine_version",
+            "model_name",
+            "model_version",
+            "result_image_path",
+            "result_image_url",
+            "object_count",
+            "avg_confidence",
+            "duration_ms",
+            "is_mock",
+            "created_at",
+            "objects",
+        ]
+
+
+class DetectionTaskListSerializer(serializers.ModelSerializer):
+    image = ImageAssetSerializer(read_only=True)
+    latest_record = serializers.SerializerMethodField()
+    object_count = serializers.SerializerMethodField()
+    can_retry = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DetectionTask
+        fields = [
+            "task_no",
+            "status",
+            "weather_scene",
+            "confidence_threshold",
+            "iou_threshold",
+            "image",
+            "object_count",
+            "latest_record",
+            "can_retry",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_latest_record(self, obj):  # noqa: ANN001
+        record = obj.inference_records.first()
+        if not record:
+            return None
+        return {
+            "engine_type": record.engine_type,
+            "duration_ms": record.duration_ms,
+            "is_mock": record.is_mock,
+        }
+
+    def get_object_count(self, obj):  # noqa: ANN001
+        record = obj.inference_records.first()
+        return record.object_count if record else 0
+
+    def get_can_retry(self, obj):  # noqa: ANN001
+        return obj.status in {DetectionTask.Status.SUCCESS, DetectionTask.Status.FAILED, DetectionTask.Status.CANCELED}
+
+
+class DetectionTaskDetailSerializer(serializers.ModelSerializer):
+    image = ImageAssetSerializer(read_only=True)
+    inference_records = InferenceRecordSerializer(many=True, read_only=True)
+    latest_record = serializers.SerializerMethodField()
+    can_retry = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DetectionTask
+        fields = [
+            "task_no",
+            "status",
+            "trigger_mode",
+            "source_type",
+            "weather_scene",
+            "confidence_threshold",
+            "iou_threshold",
+            "image",
+            "started_at",
+            "finished_at",
+            "error_message",
+            "created_at",
+            "updated_at",
+            "latest_record",
+            "can_retry",
+            "inference_records",
+        ]
+
+    def get_latest_record(self, obj):  # noqa: ANN001
+        record = obj.inference_records.first()
+        if not record:
+            return None
+        return InferenceRecordSerializer(record).data
+
+    def get_can_retry(self, obj):  # noqa: ANN001
+        return obj.status in {DetectionTask.Status.SUCCESS, DetectionTask.Status.FAILED, DetectionTask.Status.CANCELED}

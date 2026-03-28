@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 205 100% 98%;
+  --foreground: 215 28% 17%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 28% 17%;
+  --primary: 199 89% 35%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 198 93% 95%;
+  --secondary-foreground: 199 89% 20%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 188 85% 92%;
+  --accent-foreground: 199 89% 20%;
+  --border: 204 30% 88%;
+  --input: 204 30% 88%;
+  --ring: 199 89% 35%;
+  --radius: 1rem;
+}
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+}

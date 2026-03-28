@@ -1,0 +1,30 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+.env
+.env.*
+!.env.example
+
+.idea/
+
+node_modules/
+dist/
+.run/
+logs/
+
+data/uploads/*
+!data/uploads/.gitkeep
+data/results/*
+!data/results/.gitkeep
+
+# 模型權重檔不上傳（檔案過大，請自行下載）
+data/models/*.pt
+
+# 資料集目錄（本地自行準備，不提交至 git）
+data/datasets/rainfog_detection/
+
+.DS_Store
+.claude/
+.mcp.json
