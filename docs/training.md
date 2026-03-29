@@ -1,228 +1,74 @@
-# YOLOv13 微調訓練指引
+# 模型微調實操手冊 (Training Execution Guide)
 
-本文說明如何以本地資料集對 YOLOv13 預訓練權重進行微調訓練（Fine-Tuning）。
+> **當前落實狀態標註**：
+> 本文紀錄的終端代碼以及執行指令（或 `scripts/macos/train.sh`）均屬**離線開發階段性工具**。由於進行影像類物件特徵捕捉訓練十分耗費硬體算力，強烈建議本指令應置於掛載有 Nvidia CUDA 等強運算資源雲端硬體（如本機 GPU 主機、AWS EC2 或是 Google Colab）獨立執行。
 
----
-
-## 前置條件
-
-### 1. 安裝 ultralytics 依賴
+## 1. 環境前置依賴準備
+為了將 Ultralytics 套件一併配置入 Python 開發環境中，您需要於 `backend` 執行下述指令進行安裝：
 
 ```bash
 cd backend
 uv sync --extra yolo
 ```
+> **排查注意**：如果是部分相容性特殊之載體 (例如無 GPU 顯卡之舊款 Intel Mac)，請放棄 `--extra yolo` ，手動採用 conda 來橋接 CPU 支援版 PyTorch，後續手動執行 `pip install ultralytics`。
 
-> **Intel Mac（x86_64）例外**：PyTorch 不提供 x86_64 macOS 的 PyPI wheel，需改用：
-> ```bash
-> conda install pytorch torchvision cpuonly -c pytorch
-> pip install ultralytics
-> ```
+## 2. 教學專用資料集結構
+所有的 YOLO 格式圖片與標籤 (0.0~1.0 的相對標點法)，必須嚴格遵守以下路徑結構才可被識別套用。假定子目標資料名稱為 `rainfog_detection`：
 
-### 2. 確認預訓練權重已存在
-
-```
-data/models/
-  yolov13n.pt   ← nano（最快，適合快速實驗）
-  yolov13s.pt   ← small
-  yolov13l.pt   ← large
-  yolov13x.pt   ← extra-large（最準，需更多 VRAM）
-```
-
-若尚未下載，請至 [iMoonLab/yolov13 Releases](https://github.com/iMoonLab/yolov13/releases) 下載對應 `.pt` 檔案。
-
-### 3. 準備訓練資料集
-
-資料集放置於：
-
-```
+```text
 data/datasets/rainfog_detection/
-  images/
-    train/      ← 訓練圖片（.jpg / .png）
-    val/        ← 驗證圖片
-    test/       ← 測試圖片（可選）
-  labels/
-    train/      ← YOLO 格式標注（.txt，與圖片同名）
-    val/
-    test/
-  data.yaml     ← 已建立，類別清單見下方
+├── images/
+│   ├── train/  # 用於主要訓練學習之批次驗證圖 (.jpg / .png)
+│   └── val/    # 用於 Epoch 巡迴驗證指標防止 Overfitting 之圖片
+├── labels/
+│   ├── train/  # 與圖片同名同姓的 YOLO txt 檔
+│   └── val/
+└── data.yaml   # 設定定義文件 (標明類別 nc，相對目錄位址，對應標籤分類)
 ```
 
-`data.yaml` 預設類別（`nc=4`）：
+## 3. 觸發微調的命令 (CLI 指引)
 
-| class_id | 名稱 | 說明 |
-|----------|------|------|
-| 0 | car | 轎車 / 乘用車 |
-| 1 | truck | 貨車 / 卡車 |
-| 2 | bus | 公車 / 大客車 |
-| 3 | person | 行人 |
-
-> 標注格式（每行一個物件）：
-> ```
-> <class_id> <x_center> <y_center> <width> <height>
-> ```
-> 所有數值均為 0~1 的相對座標（相對圖片寬高）。
-
----
-
-## 啟動訓練
-
-### 標準啟動
+您可以靈活運用已經包裝好的 Ultralytics 指令，於 Terminal 輸入觸發指令啟動監聽。
 
 ```bash
-./scripts/macos/train.sh
+# 工作目錄需切換至專案底下之 backend
+uv run yolo detect train \
+  data=../data/datasets/rainfog_detection/data.yaml \
+  model=../data/models/yolov13n.pt \
+  epochs=50 \
+  imgsz=640 \
+  batch=16 \
+  project=../data/train_runs \
+  name=rainfog_training_exp \
+  device=0
 ```
 
-### 自訂訓練參數（常用範例）
+### 命令參數科普
+- `model`：作為基底繼承神經網路層的初始權重。預設以最輕量的 `yolov13n.pt` 作為入門。
+- `imgsz`：自動將送入管線的圖資拉長縮放成該張量體積。
+- `batch`：顯卡記憶體 VRAM 如果不夠大，請向下調整，例如改為 8 或 4。
+- `device`：設定目標使用的實體設備。(`0` 代表第一顆 GPU 核心，若缺顯卡可直接指定 `cpu` 慢速驗證)。
 
-```bash
-# 指定模型規格與 epoch 數
-./scripts/macos/train.sh --model yolov13s.pt --epochs 100
+## 4. 產出物與模型調用佈署
+經過漫長的 Epoch 收斂，系統結束後自動於指定的 `project` 與 `name` 目錄 (如 `data/train_runs/rainfog_training_exp/weights/`) 封裝生成 `best.pt` 與 `last.pt`。
 
-# 小記憶體環境（CPU 訓練、縮小 batch / imgsz）
-./scripts/macos/train.sh --device cpu --batch 4 --imgsz 416
+**上線佈署至 FastAPI 推理端**：
+1. 取出表現最優良的檔案，將之複製移交系統的預設模型調用區塊：
+   ```bash
+   cp ../data/train_runs/rainfog_training_exp/weights/best.pt ../data/models/rainfog_best.pt
+   ```
+2. 更新後端 `.env` 設定檔，告知 Adapter 層改為外接：
+   ```env
+   # 在 .env 中強制打開真實模式與宣導檔名
+   INFERENCE_MODEL_MODE=yolov13
+   INFERENCE_YOLOV13_MODEL_FILE=rainfog_best.pt
+   ```
+3. 對應 `FastAPI` (預測模組位於 9000 端口) 執行重啟即可！
 
-# GPU 訓練（指定第 0 張顯卡）
-./scripts/macos/train.sh --device 0 --batch 32 --epochs 200
-
-# 從中斷處繼續訓練
-./scripts/macos/train.sh --resume
-
-# 自訂實驗名稱（方便區分多次實驗）
-./scripts/macos/train.sh --name exp_v2_s_100ep --model yolov13s.pt --epochs 100
-```
-
-### 完整參數列表
-
-```
-./scripts/macos/train.sh --help
-
-  --model     模型規格（預設：yolov13n.pt）
-  --dataset   資料集子目錄名稱（預設：rainfog_detection）
-  --epochs    訓練 epoch 數（預設：50）
-  --batch     批次大小（預設：16；-1 = 自動）
-  --imgsz     輸入影像大小（預設：640）
-  --device    訓練裝置（預設：自動；cpu / 0 / 0,1）
-  --workers   DataLoader 執行緒數（預設：4）
-  --patience  Early stopping 無改善上限（預設：20）
-  --project   輸出根目錄（預設：data/train_runs）
-  --name      實驗名稱（預設：rainfog_finetune）
-  --resume    從上次中斷繼續
-```
-
----
-
-## 訓練輸出
-
-訓練結束後，結果存放於：
-
-```
-data/train_runs/rainfog_finetune/
-  weights/
-    best.pt    ← 驗證指標最佳的權重（推薦用於推理）
-    last.pt    ← 最後一個 epoch 的權重
-  results.csv  ← 各 epoch 的損失與指標
-  confusion_matrix.png
-  ...
-```
-
-訓練完成的日誌範例：
-
-```
-2025-01-01 12:00:00 [INFO] === 訓練完成 ===
-2025-01-01 12:00:00 [INFO] 結果目錄：/path/to/data/train_runs/rainfog_finetune
-2025-01-01 12:00:00 [INFO] 最佳權重：/path/to/data/train_runs/rainfog_finetune/weights/best.pt
-2025-01-01 12:00:00 [INFO] 最後權重：/path/to/data/train_runs/rainfog_finetune/weights/last.pt
-```
-
-### 切換至微調後的模型進行推理
-
-訓練完成後，將 `best.pt` 複製至 `data/models/`，並更新 `backend/.env`：
-
-```bash
-cp data/train_runs/rainfog_finetune/weights/best.pt data/models/rainfog_best.pt
-```
-
-```dotenv
-# backend/.env
-INFERENCE_MODEL_MODE=yolov13
-INFERENCE_YOLOV13_MODEL_FILE=rainfog_best.pt
-```
-
-重啟推理服務：
-
-```bash
-./scripts/macos/stop_inference.sh
-./scripts/macos/start_inference.sh
-```
-
----
-
-## 常見錯誤排查
-
-### 錯誤：預訓練權重不存在
-
-```
-[ERROR] 預訓練權重不存在：/path/to/data/models/yolov13n.pt
-```
-
-**解法**：至 [iMoonLab/yolov13 Releases](https://github.com/iMoonLab/yolov13/releases) 下載對應 `.pt` 並放至 `data/models/`。
-
----
-
-### 錯誤：資料集設定檔不存在
-
-```
-[ERROR] 資料集設定檔不存在：.../rainfog_detection/data.yaml
-```
-
-**解法**：確認 `data/datasets/rainfog_detection/data.yaml` 存在。若整個資料集目錄為空，表示圖片與標注尚未放入。
-
----
-
-### 錯誤：ultralytics 未安裝
-
-```
-RuntimeError: ultralytics 未安裝，無法進行訓練。
-```
-
-**解法**：
-
-```bash
-cd backend && uv sync --extra yolo
-```
-
----
-
-### 錯誤：CUDA out of memory
-
-**解法**：縮小 `--batch` 或 `--imgsz`：
-
-```bash
-./scripts/macos/train.sh --batch 4 --imgsz 416
-```
-
----
-
-### 訓練中斷後繼續
-
-```bash
-./scripts/macos/train.sh --resume
-```
-
-ultralytics 會自動從 `last.pt` 恢復訓練。
-
----
-
-## 路徑設定一覽
-
-所有路徑由 `backend/inference_service/core/config.py` 的 `Settings` 管理，可透過 `backend/.env` 覆蓋：
-
-| 環境變數 | 預設值 | 說明 |
-|----------|--------|------|
-| `INFERENCE_MODELS_ROOT` | `../data/models` | 預訓練權重目錄 |
-| `INFERENCE_DATASETS_ROOT` | `../data/datasets` | 資料集根目錄 |
-| `INFERENCE_YOLOV13_ROOT` | `../yolov13-main` | ultralytics 原始碼目錄 |
-| `INFERENCE_YOLOV13_MODEL_FILE` | `yolov13n.pt` | 預設載入的模型規格 |
-| `INFERENCE_TRAIN_PROJECT` | `../data/train_runs` | 訓練輸出根目錄（參考值） |
-| `INFERENCE_TRAIN_NAME` | `rainfog_finetune` | 訓練執行名稱（參考值） |
+## 5. 常見訓練階段異常與排除
+1. **問題：`CUDA Out of Memory` 或記憶體爆炸**
+   - **處置**：減少 Mini-Batch 之運送量。將指令中的 `batch` 由 16 砍半調降至 8 甚至 4；如仍極限再微幅降低 `imgsz`。
+2. **問題：`預訓練權重不存在` 或未自動下載**
+   - **處置**：若開發環境網路有阻擋致使工具無法自動 fetch `yolov13n.pt` 等原廠模型，請至開源庫 [iMoonLab/yolov13](https://github.com/iMoonLab/yolov13/releases) 人工下載其基礎 `.pt` 放進您的目標位址內。
+3. **問題：Loss 損失函數始終無法收斂或震盪劇烈**
+   - **處置**：多半屬於 Dataset 過少或者訓練樣本的特徵失準。可能需要提升原本 `ultralytics` 包之預設資料增減 (Augmentation) 定義。或者檢測 `data.yaml` 的 `nc` 與您實際 txt 內部的代碼區間是否合法。
