@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from training.epoch_watcher import EpochWatcher  # noqa: E402
 
 # 確保以 `python -m training.train` 或直接執行時，backend/ 都在 sys.path
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -167,6 +170,44 @@ def _load_yolo_class():
             "    conda install pytorch torchvision cpuonly -c pytorch\n"
             "    pip install ultralytics"
         ) from exc
+
+
+def _run_baseline_eval(model, resolved_yaml: str, run_dir: Path, args: argparse.Namespace) -> None:
+    """訓練前對原始預訓練權重執行 val()，基準指標儲存為 baseline_metrics.json。"""
+    logger.info("=== 基準評估：對原始 %s 在驗證集執行 val() ===", args.model)
+    try:
+        val_kwargs: dict = {
+            "data": resolved_yaml,
+            "imgsz": args.imgsz,
+            "verbose": False,
+            "save": False,
+        }
+        if args.device:
+            val_kwargs["device"] = args.device
+
+        results = model.val(**val_kwargs)
+
+        def _safe(v) -> float:  # noqa: ANN001
+            try:
+                return round(float(v), 6)
+            except Exception:  # noqa: BLE001
+                return 0.0
+
+        baseline = {
+            "model": args.model,
+            "map50": _safe(results.box.map50),
+            "map50_95": _safe(results.box.map),
+            "precision": _safe(results.box.mp),
+            "recall": _safe(results.box.mr),
+        }
+        out_path = run_dir / "baseline_metrics.json"
+        out_path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info(
+            "基準指標已儲存：mAP50=%.4f  mAP50-95=%.4f  P=%.4f  R=%.4f",
+            baseline["map50"], baseline["map50_95"], baseline["precision"], baseline["recall"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("基準評估失敗（訓練繼續）：%s", exc)
 
 
 def _get_save_dir(model, project: str, name: str) -> Path:
@@ -318,7 +359,15 @@ def main() -> None:
         train_kwargs["device"] = args.device
 
     logger.info("開始訓練...")
-    model.train(**train_kwargs)
+
+    _run_baseline_eval(model, resolved_yaml, run_dir, args)
+
+    watcher = EpochWatcher(run_dir=run_dir, total_epochs=args.epochs)
+    watcher.start()
+    try:
+        model.train(**train_kwargs)
+    finally:
+        watcher.stop()
 
     _print_result_paths(model, args.project, args.name, args)
 

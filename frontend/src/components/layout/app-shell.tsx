@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, LogOut, ScrollText, Settings } from "lucide-react";
+import { BarChart3, Boxes, BrainCircuit, LogOut, ScrollText, Settings } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
@@ -7,6 +7,7 @@ import { useAuthStore } from "@/stores/auth-store";
 const navItems = [
   { to: "/dashboard", label: "儀表盤", icon: BarChart3 },
   { to: "/detection", label: "識別任務", icon: Boxes },
+  { to: "/training", label: "模型訓練", icon: BrainCircuit },
   { to: "/system", label: "系統配置", icon: Settings },
   { to: "/audit", label: "操作審計", icon: ScrollText },
 ];

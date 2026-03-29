@@ -7,6 +7,7 @@ import { DashboardPage } from "@/pages/dashboard-page";
 import { DetectionPage } from "@/pages/detection-page";
 import { LoginPage } from "@/pages/login-page";
 import { SystemPage } from "@/pages/system-page";
+import { TrainingPage } from "@/pages/training-page";
 import { useAuthStore } from "@/stores/auth-store";
 
 function AuthLayout() {
@@ -39,6 +40,7 @@ export const router = createBrowserRouter([
           { path: "detection", element: <DetectionPage /> },
           { path: "detection/:taskNo", element: <DetectionDetailPage /> },
           { path: "system", element: <SystemPage /> },
+          { path: "training", element: <TrainingPage /> },
           { path: "audit", element: <AuditPage /> },
         ],
       },

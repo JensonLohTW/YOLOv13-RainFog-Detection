@@ -23,6 +23,7 @@ urlpatterns = [
     path("api/v1/detection/", include("apps.detection.urls")),
     path("api/v1/dashboard/", include("apps.dashboard.urls")),
     path("api/v1/system/", include("apps.system.urls")),
+    path("api/v1/training/", include("apps.training.urls")),
 ]
 
 if settings.DEBUG:

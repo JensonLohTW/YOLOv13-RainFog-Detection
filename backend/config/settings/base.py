@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     "apps.dashboard",
     "apps.audit",
     "apps.system",
+    "apps.training",
 ]
 
 MIDDLEWARE = [
