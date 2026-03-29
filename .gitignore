@@ -17,6 +17,11 @@ logs/
 # data/ 目錄全部不納入 git（模型、資料集、訓練產物、上傳暫存皆在此）
 data/
 
+# 模型權重（任意位置）
+*.pt
+*.pth
+*.onnx
+
 .DS_Store
 .claude/
 .mcp.json

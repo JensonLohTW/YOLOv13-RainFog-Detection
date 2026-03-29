@@ -38,11 +38,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _add_file_handler(run_dir: Path) -> Optional[logging.FileHandler]:
-    """在 run 目錄建立 train.log，讓每次訓練日誌各自獨立保存。"""
+def _add_file_handler(run_dir: Path, run_name: str) -> Optional[logging.FileHandler]:
+    """在 run 目錄建立帶時間戳的 log 檔，每次訓練日誌各自獨立保存。"""
     try:
         run_dir.mkdir(parents=True, exist_ok=True)
-        fh = logging.FileHandler(run_dir / "train.log", encoding="utf-8")
+        log_file = run_dir / f"{run_name}.log"
+        fh = logging.FileHandler(log_file, encoding="utf-8")
         fh.setLevel(logging.INFO)
         fh.setFormatter(
             logging.Formatter(
@@ -51,7 +52,7 @@ def _add_file_handler(run_dir: Path) -> Optional[logging.FileHandler]:
             )
         )
         logging.getLogger().addHandler(fh)
-        logger.info("日誌檔案：%s", run_dir / "train.log")
+        logger.info("日誌檔案：%s", log_file)
         return fh
     except Exception as exc:  # noqa: BLE001
         logger.warning("無法建立日誌檔案：%s", exc)
@@ -275,7 +276,7 @@ def main() -> None:
     args = parser.parse_args()
 
     run_dir = Path(args.project) / args.name
-    _add_file_handler(run_dir)
+    _add_file_handler(run_dir, args.name)
 
     logger.info("=== YOLOv13 微調訓練啟動 ===")
     logger.info("模型目錄：%s", settings.models_root)
@@ -310,6 +311,7 @@ def main() -> None:
         "name": args.name,
         "patience": args.patience,
         "resume": args.resume,
+        "exist_ok": True,
         "verbose": True,
     }
     if args.device:
