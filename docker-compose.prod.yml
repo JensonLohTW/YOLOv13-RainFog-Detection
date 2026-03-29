@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: rainfog-mysql-prod
+    restart: always
+    environment:
+      # 以下變數對應您 .env 的設定 
+      MYSQL_DATABASE: rainfog
+      MYSQL_USER: rainfog
+      MYSQL_PASSWORD: rainfog123
+      MYSQL_ROOT_PASSWORD: root123456
+    volumes:
+      - ./mysql/conf.d/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+      - mysql_prod_data:/var/lib/mysql
+    # 強迫新版 MySQL 開啟舊有開發認證模式
+    command: ["mysqld", "--default-authentication-plugin=mysql_native_password"]
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: rainfog-redis-prod
+    restart: always
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_prod_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rainfog-django-prod
+    restart: always
+    depends_on:
+      - db
+      - redis
+    # 直接開放對外的 Django (雖然前端有代理，但內部測試可從 8000)
+    ports:
+      - "8000:8000"
+    environment:
+      # 自動覆寫 .env，使 Docker 網路能解析互通別名
+      - DB_HOST=db
+      - REDIS_URL=redis://redis:6379/1
+      - INFERENCE_BASE_URL=http://fastapi:9000
+    command: >
+      bash -c "uv run python manage.py migrate --noinput &&
+               uv run gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4"
+    volumes:
+      # 為了圖形分析而掛載在外部 (不存於 Image)，可與本機同步
+      - ./data:/app/data
+
+  fastapi:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rainfog-fastapi-prod
+    restart: always
+    depends_on:
+      - redis
+    ports:
+      - "9000:9000"
+    environment:
+      # 相依於 .env 設定模型啟動，您可以修改為 yolov13 於真機上線推論
+      - REDIS_URL=redis://redis:6379/1
+    # 原專案的 FastAPI 路徑
+    command: >
+      bash -c "uv run python -m uvicorn inference_service.main:app --host 0.0.0.0 --port 9000"
+    volumes:
+      - ./data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rainfog-frontend-prod
+    restart: always
+    depends_on:
+      - backend
+    # 此處映射前端展示至外網的 5173 以維持您本機的習慣 (可按需求改為 80)
+    ports:
+      - "5173:80"
+
+volumes:
+  mysql_prod_data:
+  redis_prod_data:
