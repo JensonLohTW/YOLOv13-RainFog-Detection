@@ -1,0 +1,14 @@
+model: yolov13l.pt
+dataset: rainfog_detection
+epochs: 50
+batch: 4
+imgsz: 640
+device: 0
+workers: 0
+patience: 20
+preprocess:
+  mode: auto
+  profile: ""
+  algorithms: []
+  algorithm_params: {}
+  enable_gamma: false

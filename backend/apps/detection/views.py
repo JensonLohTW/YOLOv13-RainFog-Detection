@@ -50,6 +50,11 @@ class DetectionTaskListCreateView(APIView):
                 weather_scene=payload["weather_scene"],
                 confidence_threshold=payload["confidence_threshold"],
                 iou_threshold=payload["iou_threshold"],
+                preprocess_mode=payload["preprocess_mode"],
+                preprocess_profile=payload["preprocess_profile"],
+                preprocess_algorithms=payload["preprocess_algorithms"],
+                preprocess_algorithm_params=payload["preprocess_algorithm_params"],
+                preprocess_enable_gamma=payload["preprocess_enable_gamma"],
                 requested_by=getattr(request, "user", None),
             )
         )

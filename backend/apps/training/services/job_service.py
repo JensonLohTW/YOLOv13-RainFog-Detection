@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import os
 import re
@@ -16,6 +17,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.training.models import TrainingDataset, TrainingJob
+from common.weather_preprocess import PreprocessOptions
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,7 @@ _REPO_ROOT = Path(settings.REPO_ROOT)
 _BACKEND_DIR = _REPO_ROOT / "backend"
 _TRAIN_RUNS_DIR = _REPO_ROOT / "data" / "train_runs"
 _MODELS_DIR = _REPO_ROOT / "data" / "models"
+_PREPARED_DATASETS_DIR = _REPO_ROOT / "data" / "datasets" / "_prepared"
 _ENV_FILE = _BACKEND_DIR / ".env"
 
 
@@ -37,9 +40,27 @@ class TrainingJobService:
         device: str = "0",
         workers: int = 0,
         patience: int = 20,
+        preprocess_mode: str = "off",
+        preprocess_profile: str = "",
+        preprocess_algorithms: list[str] | None = None,
+        preprocess_algorithm_params: dict | None = None,
+        preprocess_enable_gamma: bool = False,
     ) -> TrainingJob:
         run_name = f"rainfog_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         run_dir = _TRAIN_RUNS_DIR / run_name
+        preprocess = PreprocessOptions(
+            mode=preprocess_mode,
+            profile=preprocess_profile,
+            algorithms=list(preprocess_algorithms or []),
+            algorithm_params=dict(preprocess_algorithm_params or {}),
+            enable_gamma=preprocess_enable_gamma,
+        )
+        prepared_dataset_path = ""
+        preprocess_manifest_path = ""
+        if preprocess.is_enabled():
+            prepared_name = f"{dataset.name}__{preprocess.signature()}"
+            prepared_dataset_path = str(_PREPARED_DATASETS_DIR / prepared_name)
+            preprocess_manifest_path = str(_PREPARED_DATASETS_DIR / prepared_name / "preprocess_manifest.json")
         job = TrainingJob.objects.create(
             dataset=dataset,
             model_file=model_file,
@@ -49,9 +70,16 @@ class TrainingJobService:
             device=device,
             workers=workers,
             patience=patience,
+            preprocess_mode=preprocess.normalized_mode(),
+            preprocess_profile=preprocess.normalized_profile(),
+            preprocess_algorithms=preprocess.normalized_algorithms(),
+            preprocess_algorithm_params=preprocess.algorithm_params,
+            preprocess_enable_gamma=preprocess.enable_gamma,
             run_name=run_name,
             run_dir=str(run_dir),
             log_path=str(run_dir / f"{run_name}.log"),
+            prepared_dataset_path=prepared_dataset_path,
+            preprocess_manifest_path=preprocess_manifest_path,
             total_epochs=epochs,
             status=TrainingJob.Status.PENDING,
         )
@@ -59,8 +87,33 @@ class TrainingJobService:
 
     def start_job(self, job: TrainingJob) -> TrainingJob:
         dataset_name = job.dataset.name if job.dataset else "rainfog_detection"
+        run_dir = Path(job.run_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        config_path = run_dir / "training_request.json"
+        config_payload = {
+            "model": job.model_file,
+            "dataset": dataset_name,
+            "epochs": job.epochs,
+            "batch": job.batch,
+            "imgsz": job.imgsz,
+            "device": job.device,
+            "workers": job.workers,
+            "patience": job.patience,
+            "project": str(_TRAIN_RUNS_DIR),
+            "name": job.run_name,
+            "preprocess": {
+                "mode": job.preprocess_mode,
+                "profile": job.preprocess_profile,
+                "algorithms": job.preprocess_algorithms,
+                "algorithm_params": job.preprocess_algorithm_params,
+                "enable_gamma": job.preprocess_enable_gamma,
+            },
+            "prepared_datasets_root": str(_PREPARED_DATASETS_DIR),
+        }
+        config_path.write_text(json.dumps(config_payload, indent=2, ensure_ascii=False), encoding="utf-8")
         cmd = [
             sys.executable, "-m", "training.train",
+            "--config", str(config_path),
             "--model", job.model_file,
             "--dataset", dataset_name,
             "--epochs", str(job.epochs),
@@ -75,9 +128,6 @@ class TrainingJobService:
 
         env = os.environ.copy()
         env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
-        run_dir = Path(job.run_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
 
         log_file = open(job.log_path, "a", encoding="utf-8")  # noqa: WPS515
         proc = subprocess.Popen(
@@ -160,6 +210,7 @@ class TrainingJobService:
             "--output", str(output_path),
             "--device", job.device,
             "--imgsz", str(job.imgsz),
+            "--preprocess-mode", "off",
         ]
 
         log_path = Path(job.run_dir) / "baseline_validate.log"

@@ -21,7 +21,7 @@ class InferenceServiceClient:
             ],
         }
 
-    def _local_mock_result(self, task_no: str, image_path: str, scene: str) -> dict:
+    def _local_mock_result(self, task_no: str, image_path: str, scene: str, preprocess: dict) -> dict:
         if image_path.endswith(".jpg"):
             result_image_path = image_path.replace(".jpg", "_result.jpg")
         elif image_path.endswith(".png"):
@@ -50,6 +50,7 @@ class InferenceServiceClient:
                 "mock": True,
                 "scene": scene,
                 "fallback": True,
+                "preprocess": preprocess,
             },
         }
 
@@ -70,20 +71,37 @@ class InferenceServiceClient:
         confidence_threshold: float,
         iou_threshold: float,
         scene: str,
+        preprocess_mode: str = "off",
+        preprocess_profile: str = "",
+        preprocess_algorithms: list[str] | None = None,
+        preprocess_algorithm_params: dict | None = None,
+        preprocess_enable_gamma: bool = False,
     ) -> dict:
+        preprocess = {
+            "mode": preprocess_mode,
+            "profile": preprocess_profile,
+            "algorithms": list(preprocess_algorithms or []),
+            "algorithm_params": dict(preprocess_algorithm_params or {}),
+            "enable_gamma": preprocess_enable_gamma,
+        }
         payload = {
             "task_no": task_no,
             "image_path": image_path,
             "confidence_threshold": confidence_threshold,
             "iou_threshold": iou_threshold,
             "scene": scene,
+            "preprocess_mode": preprocess_mode,
+            "preprocess_profile": preprocess_profile,
+            "preprocess_algorithms": list(preprocess_algorithms or []),
+            "preprocess_algorithm_params": dict(preprocess_algorithm_params or {}),
+            "preprocess_enable_gamma": preprocess_enable_gamma,
             "mock": self.use_mock,
         }
         try:
             return self._request("POST", "/internal/inference/detect", json=payload)
         except httpx.HTTPError:
             if self.use_mock:
-                return self._local_mock_result(task_no, image_path, scene)
+                return self._local_mock_result(task_no, image_path, scene, preprocess)
             raise
 
     def get_runtime_summary(self) -> dict:

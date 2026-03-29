@@ -103,6 +103,11 @@ class TrainingJobListCreateView(APIView):
             device=d["device"],
             workers=d["workers"],
             patience=d["patience"],
+            preprocess_mode=d["preprocess_mode"],
+            preprocess_profile=d["preprocess_profile"],
+            preprocess_algorithms=d["preprocess_algorithms"],
+            preprocess_algorithm_params=d["preprocess_algorithm_params"],
+            preprocess_enable_gamma=d["preprocess_enable_gamma"],
         )
         job = svc.start_job(job)
         return success_response(

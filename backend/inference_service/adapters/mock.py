@@ -11,6 +11,18 @@ class MockInferenceAdapter:
         }
 
     def detect(self, payload: InferenceRequest):
+        preprocess = {
+            "mode": payload.preprocess_mode,
+            "profile": payload.preprocess_profile,
+            "algorithms": list(payload.preprocess_algorithms),
+            "algorithm_params": dict(payload.preprocess_algorithm_params),
+            "enable_gamma": payload.preprocess_enable_gamma,
+        }
+        if "." in payload.image_path:
+            stem, suffix = payload.image_path.rsplit(".", 1)
+            result_image_path = f"{stem}_result.{suffix}"
+        else:
+            result_image_path = payload.image_path + "_result"
         return {
             "task_no": payload.task_no,
             "success": True,
@@ -19,7 +31,7 @@ class MockInferenceAdapter:
             "model_name": "yolov13-rainfog",
             "model_version": "draft",
             "duration_ms": 128,
-            "result_image_path": payload.image_path.replace(".jpg", "_result.jpg"),
+            "result_image_path": result_image_path,
             "objects": [
                 {
                     "class_id": 0,
@@ -28,5 +40,5 @@ class MockInferenceAdapter:
                     "bbox": [120, 80, 360, 240],
                 }
             ],
-            "raw": {"mock": True, "scene": payload.scene},
+            "raw": {"mock": True, "scene": payload.scene, "preprocess": preprocess},
         }

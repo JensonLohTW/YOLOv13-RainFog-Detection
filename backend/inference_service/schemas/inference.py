@@ -16,6 +16,11 @@ class InferenceRequest(BaseModel):
     confidence_threshold: float = 0.25
     iou_threshold: float = 0.45
     scene: str = "unknown"
+    preprocess_mode: str = "off"
+    preprocess_profile: str = ""
+    preprocess_algorithms: list[str] = Field(default_factory=list)
+    preprocess_algorithm_params: dict = Field(default_factory=dict)
+    preprocess_enable_gamma: bool = False
     mock: bool = True
 
 

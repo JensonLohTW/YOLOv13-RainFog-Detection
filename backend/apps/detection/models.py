@@ -57,6 +57,11 @@ class DetectionTask(models.Model):
     )
     confidence_threshold = models.FloatField(default=0.25)
     iou_threshold = models.FloatField(default=0.45)
+    preprocess_mode = models.CharField(max_length=16, default="off")
+    preprocess_profile = models.CharField(max_length=32, blank=True, default="")
+    preprocess_algorithms = models.JSONField(default=list, blank=True)
+    preprocess_algorithm_params = models.JSONField(default=dict, blank=True)
+    preprocess_enable_gamma = models.BooleanField(default=False)
     requested_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,

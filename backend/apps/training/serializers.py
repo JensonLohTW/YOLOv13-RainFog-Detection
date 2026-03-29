@@ -44,6 +44,13 @@ class TrainingJobCreateSerializer(serializers.Serializer):
     device = serializers.CharField(default="0", max_length=32)
     workers = serializers.IntegerField(default=0, min_value=0)
     patience = serializers.IntegerField(default=20, min_value=1)
+    preprocess_mode = serializers.ChoiceField(choices=["off", "auto", "manual"], default="off")
+    preprocess_profile = serializers.CharField(required=False, allow_blank=True, default="")
+    preprocess_algorithms = serializers.ListField(
+        child=serializers.CharField(), required=False, default=list
+    )
+    preprocess_algorithm_params = serializers.DictField(required=False, default=dict)
+    preprocess_enable_gamma = serializers.BooleanField(required=False, default=False)
 
     def validate_dataset_id(self, value):  # noqa: ANN001
         if not TrainingDataset.objects.filter(pk=value, status=TrainingDataset.Status.READY).exists():
@@ -54,13 +61,17 @@ class TrainingJobCreateSerializer(serializers.Serializer):
 class TrainingJobSerializer(serializers.ModelSerializer):
     dataset_name = serializers.SerializerMethodField()
     progress_pct = serializers.SerializerMethodField()
+    improvement_map50 = serializers.SerializerMethodField()
 
     class Meta:
         model = TrainingJob
         fields = [
             "id", "job_no", "dataset_name", "model_file",
             "epochs", "batch", "imgsz", "device",
+            "preprocess_mode", "preprocess_profile", "preprocess_algorithms",
+            "preprocess_algorithm_params", "preprocess_enable_gamma",
             "run_name", "run_dir", "log_path", "best_pt_path",
+            "prepared_dataset_path", "preprocess_manifest_path",
             "status", "pid", "current_epoch", "total_epochs",
             "best_map50", "best_map50_95", "error_message",
             "baseline_map50", "baseline_map50_95",

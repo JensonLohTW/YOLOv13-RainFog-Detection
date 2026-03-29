@@ -17,7 +17,10 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from common.weather_preprocess import prepare_dataset_with_preprocessing  # noqa: E402
 from inference_service.core.config import Settings  # noqa: E402
+from training.config_utils import parse_args_with_config  # noqa: E402
+from training.preprocess_utils import add_preprocess_arguments, build_preprocess_options  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +30,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = _BACKEND_DIR.parent
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="在指定資料集上執行 YOLOv13 模型驗證，輸出 JSON 指標",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--config", default="", help="YAML/JSON 配置文件路徑")
+    parser.add_argument("--model", required=True, help="模型路徑（絕對路徑）或 models_root 下的檔名")
+    parser.add_argument("--dataset", required=True, help="datasets_root 下的資料集子目錄名稱")
+    parser.add_argument("--output", required=True, help="輸出 JSON 檔案路徑")
+    parser.add_argument("--device", default="0", help="裝置：cpu / 0 / 0,1")
+    parser.add_argument("--imgsz", type=int, default=640, help="輸入影像大小")
+    add_preprocess_arguments(parser)
+    return parser
 
 
 def _inject_yolov13_source_path(settings: Settings) -> None:
@@ -73,16 +91,9 @@ def _resolve_data_yaml(data_yaml: Path) -> Path:
 
 def main() -> None:
     settings = Settings()
-    parser = argparse.ArgumentParser(
-        description="在指定資料集上執行 YOLOv13 模型驗證，輸出 JSON 指標",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument("--model", required=True, help="模型路徑（絕對路徑）或 models_root 下的檔名")
-    parser.add_argument("--dataset", required=True, help="datasets_root 下的資料集子目錄名稱")
-    parser.add_argument("--output", required=True, help="輸出 JSON 檔案路徑")
-    parser.add_argument("--device", default="0", help="裝置：cpu / 0 / 0,1")
-    parser.add_argument("--imgsz", type=int, default=640, help="輸入影像大小")
-    args = parser.parse_args()
+    parser = _build_parser()
+    args, config = parse_args_with_config(parser)
+    preprocess_options = build_preprocess_options(args, config)
 
     model_path = Path(args.model)
     if not model_path.is_absolute():
@@ -96,14 +107,22 @@ def main() -> None:
         logger.error("data.yaml 不存在：%s", data_yaml)
         sys.exit(1)
 
-    resolved_yaml = _resolve_data_yaml(data_yaml)
+    prepared_dataset = prepare_dataset_with_preprocessing(
+        settings.datasets_root,
+        args.dataset,
+        preprocess_options,
+        output_root=args.prepared_datasets_root or None,
+        overwrite=args.preprocess_overwrite,
+    )
+
+    resolved_yaml = _resolve_data_yaml(prepared_dataset.data_yaml_path)
     _inject_yolov13_source_path(settings)
     YOLO = _load_yolo_class()
 
     logger.info("載入模型：%s", model_path)
     model = YOLO(str(model_path))
 
-    logger.info("開始驗證（dataset=%s, device=%s）…", args.dataset, args.device)
+    logger.info("開始驗證（dataset=%s, device=%s, preprocess=%s）…", args.dataset, args.device, preprocess_options.normalized_mode())
     results = model.val(
         data=str(resolved_yaml),
         device=args.device,
@@ -120,6 +139,9 @@ def main() -> None:
     output = {
         "model": str(model_path),
         "dataset": args.dataset,
+        "data_yaml": str(prepared_dataset.data_yaml_path),
+        "prepared_dataset": prepared_dataset.to_dict(),
+        "preprocess": preprocess_options.to_dict(),
         "map50": _safe(results.box.map50),
         "map50_95": _safe(results.box.map),
         "precision": _safe(results.box.mp),

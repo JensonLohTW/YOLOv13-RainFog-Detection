@@ -17,6 +17,11 @@ class DetectionRequest:
     weather_scene: str
     confidence_threshold: float
     iou_threshold: float
+    preprocess_mode: str = "off"
+    preprocess_profile: str = ""
+    preprocess_algorithms: list[str] | None = None
+    preprocess_algorithm_params: dict | None = None
+    preprocess_enable_gamma: bool = False
     requested_by: Any = None
 
 
@@ -33,6 +38,11 @@ class DetectionTaskService:
             weather_scene=request.weather_scene,
             confidence_threshold=request.confidence_threshold,
             iou_threshold=request.iou_threshold,
+            preprocess_mode=request.preprocess_mode,
+            preprocess_profile=request.preprocess_profile,
+            preprocess_algorithms=list(request.preprocess_algorithms or []),
+            preprocess_algorithm_params=dict(request.preprocess_algorithm_params or {}),
+            preprocess_enable_gamma=request.preprocess_enable_gamma,
             requested_by=request.requested_by if getattr(request.requested_by, "is_authenticated", False) else None,
         )
         return self._run_for_existing_task(task)
@@ -45,6 +55,11 @@ class DetectionTaskService:
             confidence_threshold=task.confidence_threshold,
             iou_threshold=task.iou_threshold,
             scene=task.weather_scene,
+            preprocess_mode=task.preprocess_mode,
+            preprocess_profile=task.preprocess_profile,
+            preprocess_algorithms=task.preprocess_algorithms,
+            preprocess_algorithm_params=task.preprocess_algorithm_params,
+            preprocess_enable_gamma=task.preprocess_enable_gamma,
         )
 
     def _run_for_existing_task(self, task: DetectionTask) -> DetectionTask:
@@ -75,6 +90,11 @@ class DetectionTaskService:
                 "weather_scene": task.weather_scene,
                 "confidence_threshold": task.confidence_threshold,
                 "iou_threshold": task.iou_threshold,
+                "preprocess_mode": task.preprocess_mode,
+                "preprocess_profile": task.preprocess_profile,
+                "preprocess_algorithms": task.preprocess_algorithms,
+                "preprocess_algorithm_params": task.preprocess_algorithm_params,
+                "preprocess_enable_gamma": task.preprocess_enable_gamma,
             },
             response_payload=inference_response,
             result_image_path=inference_response.get("result_image_path", ""),

@@ -20,7 +20,12 @@ import logging
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
+from common.weather_preprocess import PreprocessOptions, preprocess_image
 from inference_service.adapters.base import BaseInferenceAdapter
 from inference_service.core.config import Settings
 from inference_service.schemas.inference import InferenceRequest
@@ -69,7 +74,6 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
 
         # 把 yolov13-main 加入 sys.path，優先使用本地版本的 ultralytics。
         # 使用 Path.resolve() 規格化路徑（Windows 路徑大小寫 + 分隔符統一）。
-        from pathlib import Path  # noqa: PLC0415
         yolov13_root = str(Path(self.settings.yolov13_root).resolve())
         if yolov13_root not in sys.path:
             sys.path.insert(0, yolov13_root)
@@ -100,17 +104,35 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
         logger.info("模型載入完成：%s", self.settings.yolov13_model_file)
         return self._model
 
+    def _load_rgb_image(self, image_path: str) -> np.ndarray:
+        return np.array(Image.open(image_path).convert("RGB"))
+
     # ──────────────────────────────────────────────
     #  detect
     # ──────────────────────────────────────────────
 
     def detect(self, payload: InferenceRequest) -> dict:
         model = self._load_model()
+        preprocess_options = PreprocessOptions(
+            mode=payload.preprocess_mode,
+            profile=payload.preprocess_profile,
+            scene=payload.scene,
+            algorithms=list(payload.preprocess_algorithms),
+            algorithm_params=dict(payload.preprocess_algorithm_params),
+            enable_gamma=payload.preprocess_enable_gamma,
+        )
+        source_image = self._load_rgb_image(payload.image_path)
+        preprocess_result = preprocess_image(
+            source_image,
+            preprocess_options,
+            image_path=payload.image_path,
+            scene_hint=payload.scene,
+        )
 
         logger.debug("開始推理：task_no=%s  image=%s", payload.task_no, payload.image_path)
         t0 = time.time()
         results = model.predict(
-            source=payload.image_path,
+            source=Image.fromarray(preprocess_result.image),
             conf=payload.confidence_threshold,
             iou=payload.iou_threshold,
             save=False,
@@ -152,6 +174,7 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
             "raw": {
                 "mock": False,
                 "scene": payload.scene,
+                "preprocess": preprocess_result.metadata(),
             },
         }
 
@@ -165,9 +188,6 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
         回傳絕對路徑字串；存檔失敗時靜默回傳空字串（不中斷主流程）。
         """
         try:
-            import numpy as np  # noqa: PLC0415
-            from PIL import Image  # noqa: PLC0415
-
             annotated_bgr = result.plot()  # numpy array, BGR
             annotated_rgb = annotated_bgr[:, :, ::-1]  # BGR → RGB
 

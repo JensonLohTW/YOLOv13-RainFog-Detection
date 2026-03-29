@@ -69,11 +69,18 @@ class TrainingJob(models.Model):
     device = models.CharField(max_length=32, default="0")
     workers = models.PositiveIntegerField(default=0)
     patience = models.PositiveIntegerField(default=20)
+    preprocess_mode = models.CharField(max_length=16, default="off")
+    preprocess_profile = models.CharField(max_length=32, blank=True, default="")
+    preprocess_algorithms = models.JSONField(default=list, blank=True)
+    preprocess_algorithm_params = models.JSONField(default=dict, blank=True)
+    preprocess_enable_gamma = models.BooleanField(default=False)
 
     run_name = models.CharField(max_length=128, blank=True)
     run_dir = models.CharField(max_length=512, blank=True)
     log_path = models.CharField(max_length=512, blank=True)
     best_pt_path = models.CharField(max_length=512, blank=True)
+    prepared_dataset_path = models.CharField(max_length=512, blank=True)
+    preprocess_manifest_path = models.CharField(max_length=512, blank=True)
 
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     pid = models.IntegerField(null=True, blank=True)

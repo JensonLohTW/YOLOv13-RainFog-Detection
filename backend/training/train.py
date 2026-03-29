@@ -31,7 +31,10 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from common.weather_preprocess import prepare_dataset_with_preprocessing  # noqa: E402
 from inference_service.core.config import Settings  # noqa: E402
+from training.config_utils import parse_args_with_config  # noqa: E402
+from training.preprocess_utils import add_preprocess_arguments, build_preprocess_options  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,6 +74,7 @@ def _build_parser(settings: Settings) -> argparse.ArgumentParser:
         description="YOLOv13 微調訓練（Fine-Tuning）",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--config", default="", help="YAML/JSON 配置文件路徑")
     parser.add_argument(
         "--model",
         default=settings.yolov13_model_file,
@@ -93,6 +97,7 @@ def _build_parser(settings: Settings) -> argparse.ArgumentParser:
     default_name = "rainfog_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     parser.add_argument("--name", default=default_name, help="訓練執行名稱（區分不同實驗）")
     parser.add_argument("--resume", action="store_true", help="從上次中斷處繼續訓練")
+    add_preprocess_arguments(parser)
     return parser
 
 
@@ -210,6 +215,66 @@ def _run_baseline_eval(model, resolved_yaml: str, run_dir: Path, args: argparse.
         logger.warning("基準評估失敗（訓練繼續）：%s", exc)
 
 
+def _write_experiment_manifest(
+    run_dir: Path,
+    args: argparse.Namespace,
+    preprocess_options,
+    prepared_dataset,
+    model_path: Path,
+) -> None:
+    manifest = {
+        "run_name": args.name,
+        "model": str(model_path),
+        "dataset": args.dataset,
+        "project": args.project,
+        "epochs": args.epochs,
+        "batch": args.batch,
+        "imgsz": args.imgsz,
+        "device": args.device or "auto",
+        "workers": args.workers,
+        "patience": args.patience,
+        "resume": args.resume,
+        "preprocess": preprocess_options.to_dict(),
+        "prepared_dataset": prepared_dataset.to_dict(),
+    }
+    manifest_path = run_dir / "experiment_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _write_compare_report(save_dir: Path, model, args: argparse.Namespace, preprocess_options, prepared_dataset) -> None:
+    baseline_path = save_dir / "baseline_metrics.json"
+    if not baseline_path.exists():
+        return
+    try:
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return
+    metrics = {
+        "mAP50": _best_metric(model=model, key="metrics/mAP50(B)", default="N/A"),
+        "mAP50-95": _best_metric(model=model, key="metrics/mAP50-95(B)", default="N/A"),
+        "Precision": _best_metric(model=model, key="metrics/precision(B)", default="N/A"),
+        "Recall": _best_metric(model=model, key="metrics/recall(B)", default="N/A"),
+    }
+    report_lines = [
+        "# 基準模型 vs 預處理訓練模型\n\n",
+        f"- 基準模型權重：`{args.model}`\n",
+        f"- 實驗模型權重：`{save_dir / 'weights' / 'best.pt'}`\n",
+        f"- 數據集：`{args.dataset}`\n",
+        f"- 預處理模式：`{preprocess_options.normalized_mode()}`\n",
+        f"- 預處理場景：`{preprocess_options.normalized_profile() or 'auto'}`\n",
+        f"- 算法組合：`{', '.join(preprocess_options.normalized_algorithms()) or 'none'}`\n",
+        f"- 派生數據集：`{prepared_dataset.dataset_root}`\n\n",
+        "## 指標對比\n\n",
+        "| 指標 | 基準模型（無預處理） | 當前訓練最佳 |\n",
+        "|------|-------------------:|-------------:|\n",
+        f"| mAP50 | {baseline.get('map50', 0.0):.4f} | {metrics['mAP50']} |\n",
+        f"| mAP50-95 | {baseline.get('map50_95', 0.0):.4f} | {metrics['mAP50-95']} |\n",
+        f"| Precision | {baseline.get('precision', 0.0):.4f} | {metrics['Precision']} |\n",
+        f"| Recall | {baseline.get('recall', 0.0):.4f} | {metrics['Recall']} |\n",
+    ]
+    (save_dir / "experiment_compare.md").write_text("".join(report_lines), encoding="utf-8")
+
+
 def _get_save_dir(model, project: str, name: str) -> Path:
     try:
         return Path(model.trainer.save_dir)
@@ -219,6 +284,8 @@ def _get_save_dir(model, project: str, name: str) -> Path:
 
 def _best_metric(model, key: str, default: str = "N/A") -> str:
     """從 trainer.metrics 或 validator.metrics 取最佳指標，失敗時回傳預設值。"""
+    if model is None:
+        return default
     try:
         val = model.trainer.metrics.get(key)
         return f"{val:.4f}" if val is not None else default
@@ -249,6 +316,10 @@ def _write_summary(model, args: argparse.Namespace, save_dir: Path) -> None:
         f"| device | {args.device or 'auto'} |\n",
         f"| workers | {args.workers} |\n",
         f"| patience | {args.patience} |\n",
+        f"| preprocess_mode | {getattr(args, 'preprocess_mode', 'off')} |\n",
+        f"| preprocess_profile | {getattr(args, 'preprocess_profile', '') or 'auto'} |\n",
+        f"| preprocess_algorithms | {', '.join(getattr(args, 'preprocess_algorithms', [])) or 'auto'} |\n",
+        f"| prepared_datasets_root | {getattr(args, 'prepared_datasets_root', '') or 'default'} |\n",
         "\n## 最佳指標\n",
         "| 指標 | 值 |\n|------|-----|\n",
         f"| mAP50 | {map50} |\n",
@@ -259,6 +330,8 @@ def _write_summary(model, args: argparse.Namespace, save_dir: Path) -> None:
         "| 檔案 | 路徑 |\n|------|-----|\n",
         f"| best.pt | `{best_pt}` |\n",
         f"| last.pt | `{last_pt}` |\n",
+        f"| experiment_manifest.json | `{save_dir / 'experiment_manifest.json'}` |\n",
+        f"| experiment_compare.md | `{save_dir / 'experiment_compare.md'}` |\n",
         f"| results.csv | `{save_dir / 'results.csv'}` |\n",
         f"| results.png | `{save_dir / 'results.png'}` |\n",
         f"| confusion_matrix.png | `{save_dir / 'confusion_matrix.png'}` |\n",
@@ -274,6 +347,9 @@ def _write_summary(model, args: argparse.Namespace, save_dir: Path) -> None:
         ["batch", args.batch],
         ["imgsz", args.imgsz],
         ["device", args.device or "auto"],
+        ["preprocess_mode", getattr(args, "preprocess_mode", "off")],
+        ["preprocess_profile", getattr(args, "preprocess_profile", "") or "auto"],
+        ["preprocess_algorithms", ", ".join(getattr(args, "preprocess_algorithms", [])) or "auto"],
         ["mAP50", map50],
         ["mAP50-95", map50_95],
         ["Precision", precision],
@@ -314,7 +390,11 @@ def _print_result_paths(model, project: str, name: str, args: argparse.Namespace
 def main() -> None:
     settings = Settings()
     parser = _build_parser(settings)
-    args = parser.parse_args()
+    args, config = parse_args_with_config(parser)
+    preprocess_options = build_preprocess_options(args, config)
+    args.preprocess_mode = preprocess_options.normalized_mode()
+    args.preprocess_profile = preprocess_options.normalized_profile()
+    args.preprocess_algorithms = preprocess_options.normalized_algorithms()
 
     run_dir = Path(args.project) / args.name
     _add_file_handler(run_dir, args.name)
@@ -325,13 +405,28 @@ def main() -> None:
     logger.info("YOLOv13 原始碼：%s", settings.yolov13_root)
 
     model_path, data_yaml = _validate_paths(settings, args.model, args.dataset)
+    prepared_dataset = prepare_dataset_with_preprocessing(
+        settings.datasets_root,
+        args.dataset,
+        preprocess_options,
+        output_root=args.prepared_datasets_root or None,
+        overwrite=args.preprocess_overwrite,
+    )
+    _write_experiment_manifest(run_dir, args, preprocess_options, prepared_dataset, model_path)
 
     logger.info("--- 訓練參數 ---")
     logger.info("  模型：%s", model_path)
-    logger.info("  資料集：%s", data_yaml)
+    logger.info("  原始資料集：%s", data_yaml)
+    logger.info("  訓練資料集：%s", prepared_dataset.data_yaml_path)
     logger.info("  epochs=%d  batch=%d  imgsz=%d", args.epochs, args.batch, args.imgsz)
     logger.info(
         "  device=%s  workers=%d  patience=%d", args.device or "auto", args.workers, args.patience
+    )
+    logger.info(
+        "  preprocess=%s  profile=%s  algorithms=%s",
+        preprocess_options.normalized_mode(),
+        preprocess_options.normalized_profile() or "auto",
+        ",".join(preprocess_options.normalized_algorithms()) or "auto",
     )
     logger.info("  輸出：%s/%s", args.project, args.name)
     logger.info("  resume=%s", args.resume)
@@ -341,7 +436,8 @@ def main() -> None:
     YOLO = _load_yolo_class()
     model = YOLO(str(model_path))
 
-    resolved_yaml = _resolve_data_yaml(data_yaml)
+    resolved_yaml = _resolve_data_yaml(prepared_dataset.data_yaml_path)
+    baseline_yaml = _resolve_data_yaml(data_yaml)
     train_kwargs: dict = {
         "data": resolved_yaml,
         "epochs": args.epochs,
@@ -360,7 +456,7 @@ def main() -> None:
 
     logger.info("開始訓練...")
 
-    _run_baseline_eval(model, resolved_yaml, run_dir, args)
+    _run_baseline_eval(model, baseline_yaml, run_dir, args)
 
     watcher = EpochWatcher(run_dir=run_dir, total_epochs=args.epochs)
     watcher.start()
@@ -370,6 +466,7 @@ def main() -> None:
         watcher.stop()
 
     _print_result_paths(model, args.project, args.name, args)
+    _write_compare_report(_get_save_dir(model, args.project, args.name), model, args, preprocess_options, prepared_dataset)
 
 
 if __name__ == "__main__":
