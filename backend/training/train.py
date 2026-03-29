@@ -21,6 +21,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 # 確保以 `python -m training.train` 或直接執行時，backend/ 都在 sys.path
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -35,6 +36,26 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+def _add_file_handler(run_dir: Path) -> Optional[logging.FileHandler]:
+    """在 run 目錄建立 train.log，讓每次訓練日誌各自獨立保存。"""
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(run_dir / "train.log", encoding="utf-8")
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        logging.getLogger().addHandler(fh)
+        logger.info("日誌檔案：%s", run_dir / "train.log")
+        return fh
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("無法建立日誌檔案：%s", exc)
+        return None
 
 _REPO_ROOT = _BACKEND_DIR.parent
 
@@ -252,6 +273,9 @@ def main() -> None:
     settings = Settings()
     parser = _build_parser(settings)
     args = parser.parse_args()
+
+    run_dir = Path(args.project) / args.name
+    _add_file_handler(run_dir)
 
     logger.info("=== YOLOv13 微調訓練啟動 ===")
     logger.info("模型目錄：%s", settings.models_root)

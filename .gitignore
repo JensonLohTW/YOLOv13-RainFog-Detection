@@ -14,27 +14,8 @@ dist/
 .run/
 logs/
 
-data/uploads/*
-!data/uploads/.gitkeep
-data/results/*
-!data/results/.gitkeep
-
-# 模型權重檔不上傳（檔案過大，請自行下載）
-data/models/*.pt
-
-# 資料集目錄（本地自行準備，不提交至 git）
-# data.yaml 與目錄骨架（.gitkeep）追蹤；實際影像與標注不提交
-data/datasets/rainfog_detection/images/train/*
-data/datasets/rainfog_detection/images/val/*
-data/datasets/rainfog_detection/images/test/*
-data/datasets/rainfog_detection/labels/train/*
-data/datasets/rainfog_detection/labels/val/*
-data/datasets/rainfog_detection/labels/test/*
-!data/datasets/rainfog_detection/**/.gitkeep
-# dawn-dataset 原始資料（大型，不提交）
-data/datasets/rainfog_detection/dawn-dataset/
-# 訓練輸出目錄
-data/train_runs/
+# data/ 目錄全部不納入 git（模型、資料集、訓練產物、上傳暫存皆在此）
+data/
 
 .DS_Store
 .claude/
