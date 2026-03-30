@@ -8,16 +8,21 @@ from .models import DetectionObject, DetectionTask, InferenceRecord
 
 class DetectionTaskCreateSerializer(serializers.Serializer):
     image_id = serializers.IntegerField()
-    weather_scene = serializers.ChoiceField(choices=DetectionTask.WeatherScene.choices)
-    confidence_threshold = serializers.FloatField(default=0.25, min_value=0.0, max_value=1.0)
-    iou_threshold = serializers.FloatField(default=0.45, min_value=0.0, max_value=1.0)
-    preprocess_mode = serializers.ChoiceField(choices=["off", "auto", "manual"], default="off")
-    preprocess_profile = serializers.CharField(required=False, allow_blank=True, default="")
-    preprocess_algorithms = serializers.ListField(
-        child=serializers.CharField(), required=False, default=list
+    recognition_mode = serializers.ChoiceField(
+        choices=DetectionTask.RecognitionMode.choices,
+        required=False,
     )
-    preprocess_algorithm_params = serializers.DictField(required=False, default=dict)
-    preprocess_enable_gamma = serializers.BooleanField(required=False, default=False)
+    weather_scene = serializers.ChoiceField(
+        choices=DetectionTask.WeatherScene.choices,
+        required=False,
+    )
+    confidence_threshold = serializers.FloatField(required=False, min_value=0.0, max_value=1.0)
+    iou_threshold = serializers.FloatField(required=False, min_value=0.0, max_value=1.0)
+    preprocess_mode = serializers.ChoiceField(choices=["off", "auto", "manual"], required=False)
+    preprocess_profile = serializers.CharField(required=False, allow_blank=True)
+    preprocess_algorithms = serializers.ListField(child=serializers.CharField(), required=False)
+    preprocess_algorithm_params = serializers.DictField(required=False)
+    preprocess_enable_gamma = serializers.BooleanField(required=False)
 
     def validate_image_id(self, value):  # noqa: ANN001
         if not ImageAsset.objects.filter(pk=value).exists():
@@ -78,6 +83,7 @@ class DetectionTaskListSerializer(serializers.ModelSerializer):
         fields = [
             "task_no",
             "status",
+            "recognition_mode",
             "weather_scene",
             "confidence_threshold",
             "iou_threshold",
@@ -124,6 +130,7 @@ class DetectionTaskDetailSerializer(serializers.ModelSerializer):
             "status",
             "trigger_mode",
             "source_type",
+            "recognition_mode",
             "weather_scene",
             "confidence_threshold",
             "iou_threshold",
@@ -132,6 +139,7 @@ class DetectionTaskDetailSerializer(serializers.ModelSerializer):
             "preprocess_algorithms",
             "preprocess_algorithm_params",
             "preprocess_enable_gamma",
+            "runtime_options",
             "image",
             "started_at",
             "finished_at",

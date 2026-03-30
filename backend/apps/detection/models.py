@@ -31,6 +31,10 @@ class DetectionTask(models.Model):
         IMAGE_UPLOAD = "image_upload", "Image Upload"
         HISTORICAL_REPLAY = "historical_replay", "Historical Replay"
 
+    class RecognitionMode(models.TextChoices):
+        SCENE_DEFAULT = "scene_default", "Scene Default"
+        IMAGE = "image", "Image"
+
     class WeatherScene(models.TextChoices):
         RAIN = "rain", "Rain"
         FOG = "fog", "Fog"
@@ -40,21 +44,14 @@ class DetectionTask(models.Model):
     task_no = models.CharField(max_length=32, unique=True, default=generate_task_no)
     image = models.ForeignKey(ImageAsset, on_delete=models.PROTECT, related_name="detection_tasks")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
-    trigger_mode = models.CharField(
-        max_length=16,
-        choices=TriggerMode.choices,
-        default=TriggerMode.MANUAL,
-    )
-    source_type = models.CharField(
+    trigger_mode = models.CharField(max_length=16, choices=TriggerMode.choices, default=TriggerMode.MANUAL)
+    source_type = models.CharField(max_length=32, choices=SourceType.choices, default=SourceType.IMAGE_UPLOAD)
+    recognition_mode = models.CharField(
         max_length=32,
-        choices=SourceType.choices,
-        default=SourceType.IMAGE_UPLOAD,
+        choices=RecognitionMode.choices,
+        default=RecognitionMode.SCENE_DEFAULT,
     )
-    weather_scene = models.CharField(
-        max_length=16,
-        choices=WeatherScene.choices,
-        default=WeatherScene.UNKNOWN,
-    )
+    weather_scene = models.CharField(max_length=16, choices=WeatherScene.choices, default=WeatherScene.UNKNOWN)
     confidence_threshold = models.FloatField(default=0.25)
     iou_threshold = models.FloatField(default=0.45)
     preprocess_mode = models.CharField(max_length=16, default="off")
@@ -62,6 +59,7 @@ class DetectionTask(models.Model):
     preprocess_algorithms = models.JSONField(default=list, blank=True)
     preprocess_algorithm_params = models.JSONField(default=dict, blank=True)
     preprocess_enable_gamma = models.BooleanField(default=False)
+    runtime_options = models.JSONField(default=dict, blank=True)
     requested_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -123,6 +121,4 @@ class DetectionObject(models.Model):
     class Meta:
         db_table = "detection_objects"
         ordering = ["-confidence", "-created_at"]
-        indexes = [
-            models.Index(fields=["class_name"]),
-        ]
+        indexes = [models.Index(fields=["class_name"])]

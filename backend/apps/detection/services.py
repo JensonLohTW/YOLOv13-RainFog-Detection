@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,19 +11,21 @@ from apps.media.models import ImageAsset
 from integrations.inference.client import InferenceServiceClient
 
 from .models import DetectionObject, DetectionTask, InferenceRecord
+from .modes import RecognitionModeResolver
 
 
 @dataclass
 class DetectionRequest:
     image: ImageAsset
-    weather_scene: str
-    confidence_threshold: float
-    iou_threshold: float
-    preprocess_mode: str = "off"
-    preprocess_profile: str = ""
+    recognition_mode: str | None = None
+    weather_scene: str | None = None
+    confidence_threshold: float | None = None
+    iou_threshold: float | None = None
+    preprocess_mode: str | None = None
+    preprocess_profile: str | None = None
     preprocess_algorithms: list[str] | None = None
-    preprocess_algorithm_params: dict | None = None
-    preprocess_enable_gamma: bool = False
+    preprocess_algorithm_params: dict[str, object] | None = None
+    preprocess_enable_gamma: bool | None = None
     requested_by: Any = None
 
 
@@ -29,29 +33,43 @@ class DetectionTaskService:
     def __init__(self) -> None:
         self.client = InferenceServiceClient()
         self.dashboard_service = DashboardService()
+        self.mode_resolver = RecognitionModeResolver()
 
     @transaction.atomic
     def create_and_run(self, request: DetectionRequest) -> DetectionTask:
-        task = DetectionTask.objects.create(
-            image=request.image,
-            status=DetectionTask.Status.QUEUED,
+        resolved = self.mode_resolver.resolve(
+            recognition_mode=request.recognition_mode,
             weather_scene=request.weather_scene,
             confidence_threshold=request.confidence_threshold,
             iou_threshold=request.iou_threshold,
             preprocess_mode=request.preprocess_mode,
             preprocess_profile=request.preprocess_profile,
-            preprocess_algorithms=list(request.preprocess_algorithms or []),
-            preprocess_algorithm_params=dict(request.preprocess_algorithm_params or {}),
+            preprocess_algorithms=request.preprocess_algorithms,
+            preprocess_algorithm_params=request.preprocess_algorithm_params,
             preprocess_enable_gamma=request.preprocess_enable_gamma,
+        )
+        task = DetectionTask.objects.create(
+            image=request.image,
+            status=DetectionTask.Status.QUEUED,
+            recognition_mode=resolved.recognition_mode,
+            weather_scene=resolved.weather_scene,
+            confidence_threshold=resolved.confidence_threshold,
+            iou_threshold=resolved.iou_threshold,
+            preprocess_mode=resolved.preprocess_mode,
+            preprocess_profile=resolved.preprocess_profile,
+            preprocess_algorithms=resolved.preprocess_algorithms,
+            preprocess_algorithm_params=resolved.preprocess_algorithm_params,
+            preprocess_enable_gamma=resolved.preprocess_enable_gamma,
+            runtime_options=resolved.runtime_options,
             requested_by=request.requested_by if getattr(request.requested_by, "is_authenticated", False) else None,
         )
         return self._run_for_existing_task(task)
 
     def _run_inference(self, task: DetectionTask) -> dict:
-        # 這裡集中管理推理調用，讓首次執行與重試流程共用同一條鏈路。
         return self.client.detect(
             task_no=task.task_no,
             image_path=task.image.file.path,
+            recognition_mode=task.recognition_mode,
             confidence_threshold=task.confidence_threshold,
             iou_threshold=task.iou_threshold,
             scene=task.weather_scene,
@@ -60,6 +78,7 @@ class DetectionTaskService:
             preprocess_algorithms=task.preprocess_algorithms,
             preprocess_algorithm_params=task.preprocess_algorithm_params,
             preprocess_enable_gamma=task.preprocess_enable_gamma,
+            runtime_options=task.runtime_options,
         )
 
     def _run_for_existing_task(self, task: DetectionTask) -> DetectionTask:
@@ -78,7 +97,7 @@ class DetectionTaskService:
     def _persist_result(self, task: DetectionTask, inference_response: dict) -> DetectionTask:
         objects = inference_response.get("objects", [])
         confidences = [obj.get("confidence", 0.0) for obj in objects]
-        record = InferenceRecord.objects.create(
+        record = InferenceRecord._default_manager.create(
             task=task,
             engine_type=inference_response.get("engine_type", "unknown"),
             engine_version=inference_response.get("engine_version", ""),
@@ -87,6 +106,7 @@ class DetectionTaskService:
             request_payload={
                 "task_no": task.task_no,
                 "image_path": task.image.file.path,
+                "recognition_mode": task.recognition_mode,
                 "weather_scene": task.weather_scene,
                 "confidence_threshold": task.confidence_threshold,
                 "iou_threshold": task.iou_threshold,
@@ -95,17 +115,16 @@ class DetectionTaskService:
                 "preprocess_algorithms": task.preprocess_algorithms,
                 "preprocess_algorithm_params": task.preprocess_algorithm_params,
                 "preprocess_enable_gamma": task.preprocess_enable_gamma,
+                "runtime_options": task.runtime_options,
             },
             response_payload=inference_response,
             result_image_path=inference_response.get("result_image_path", ""),
-            # 開發階段先保留結果圖路徑，真正可訪問的 URL 後續由存儲服務統一生成。
             result_image_url="",
             object_count=len(objects),
             avg_confidence=(sum(confidences) / len(confidences)) if confidences else None,
             duration_ms=inference_response.get("duration_ms", 0),
             is_mock=inference_response.get("raw", {}).get("mock", False),
         )
-
         for obj in objects:
             x1, y1, x2, y2 = obj.get("bbox", [0, 0, 0, 0])
             DetectionObject.objects.create(
@@ -121,7 +140,6 @@ class DetectionTaskService:
                 bbox_height=max(0, y2 - y1),
                 area_ratio=None,
             )
-
         task.status = DetectionTask.Status.SUCCESS if inference_response.get("success") else DetectionTask.Status.FAILED
         task.finished_at = timezone.now()
         task.error_message = "" if inference_response.get("success") else "Inference failed"

@@ -31,9 +31,11 @@ type InferenceRecord = {
 type DetectionTaskDetail = {
   task_no: string;
   status: string;
+  recognition_mode: string;
   weather_scene: string;
   confidence_threshold: number;
   iou_threshold: number;
+  runtime_options: Record<string, string | number | boolean>;
   error_message: string;
   can_retry: boolean;
   image: {
@@ -95,6 +97,7 @@ export function DetectionDetailPage() {
           <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2">
             <p>任務編號：{detail?.task_no ?? "--"}</p>
             <p>當前狀態：{detail?.status ?? "--"}</p>
+            <p>識別模式：{detail?.recognition_mode ?? "--"}</p>
             <p>天氣場景：{detail?.weather_scene ?? "--"}</p>
             <p>置信度閾值：{detail?.confidence_threshold ?? "--"}</p>
             <p>IOU 閾值：{detail?.iou_threshold ?? "--"}</p>
@@ -113,7 +116,8 @@ export function DetectionDetailPage() {
             <p>耗時：{latestRecord?.duration_ms ?? 0} ms</p>
             <p>目標數：{latestRecord?.object_count ?? 0}</p>
             <p>平均置信度：{latestRecord?.avg_confidence ?? "--"}</p>
-            <p>模式：{latestRecord?.is_mock ? "Mock" : "Real"}</p>
+            <p>推理類型：{latestRecord?.is_mock ? "Mock" : "Real"}</p>
+            <p>模型配置：{String(detail?.runtime_options?.model_profile ?? "--")}</p>
           </div>
         </div>
       </div>

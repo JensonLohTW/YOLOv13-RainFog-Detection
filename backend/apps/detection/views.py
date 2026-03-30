@@ -14,7 +14,7 @@ from .services import DetectionRequest, DetectionTaskService
 def build_detection_queryset():
     # 任務列表與詳情頁共用同一套查詢預載，減少重複 SQL。
     return DetectionTask.objects.select_related("image").prefetch_related(
-        Prefetch("inference_records", queryset=InferenceRecord.objects.prefetch_related("objects"))
+        Prefetch("inference_records", queryset=InferenceRecord._default_manager.prefetch_related("objects"))
     )
 
 
@@ -47,14 +47,15 @@ class DetectionTaskListCreateView(APIView):
         task = DetectionTaskService().create_and_run(
             DetectionRequest(
                 image=image,
-                weather_scene=payload["weather_scene"],
-                confidence_threshold=payload["confidence_threshold"],
-                iou_threshold=payload["iou_threshold"],
-                preprocess_mode=payload["preprocess_mode"],
-                preprocess_profile=payload["preprocess_profile"],
-                preprocess_algorithms=payload["preprocess_algorithms"],
-                preprocess_algorithm_params=payload["preprocess_algorithm_params"],
-                preprocess_enable_gamma=payload["preprocess_enable_gamma"],
+                recognition_mode=payload.get("recognition_mode"),
+                weather_scene=payload.get("weather_scene"),
+                confidence_threshold=payload.get("confidence_threshold"),
+                iou_threshold=payload.get("iou_threshold"),
+                preprocess_mode=payload.get("preprocess_mode"),
+                preprocess_profile=payload.get("preprocess_profile"),
+                preprocess_algorithms=payload.get("preprocess_algorithms"),
+                preprocess_algorithm_params=payload.get("preprocess_algorithm_params"),
+                preprocess_enable_gamma=payload.get("preprocess_enable_gamma"),
                 requested_by=getattr(request, "user", None),
             )
         )

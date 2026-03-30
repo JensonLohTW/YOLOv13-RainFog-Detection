@@ -9,6 +9,15 @@ type SystemSummary = {
   inference_use_mock: boolean;
   inference_model_mode: string;
   inference_model_name: string;
+  detection_defaults: {
+    recognition_mode: string;
+    scene: string;
+    confidence_threshold: number;
+    iou_threshold: number;
+    preprocess_mode: string;
+    preprocess_profile: string;
+    model_profile: string;
+  };
   redis: {
     host: string;
     port: number;
@@ -70,7 +79,7 @@ export function SystemPage() {
         </p>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">推理服務</p>
           <p className="mt-2 text-lg font-medium text-slate-900">{data?.summary.inference_base_url ?? "--"}</p>
@@ -79,6 +88,18 @@ export function SystemPage() {
           </p>
           <p className="mt-1 text-sm text-slate-600">
             適配器：{data?.summary.inference_model_mode ?? "--"} / {data?.summary.inference_model_name ?? "--"}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">默認識別模式</p>
+          <p className="mt-2 text-lg font-medium text-slate-900">
+            {data?.summary.detection_defaults.recognition_mode ?? "--"}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            場景：{data?.summary.detection_defaults.scene ?? "--"} / 模型：{data?.summary.detection_defaults.model_profile ?? "--"}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            conf：{data?.summary.detection_defaults.confidence_threshold ?? "--"} / iou：{data?.summary.detection_defaults.iou_threshold ?? "--"}
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5">

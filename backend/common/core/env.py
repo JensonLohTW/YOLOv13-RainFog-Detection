@@ -17,6 +17,11 @@ def env_int(key: str, default: int) -> int:
     return int(value) if value is not None else default
 
 
+def env_float(key: str, default: float) -> float:
+    value = os.getenv(key)
+    return float(value) if value is not None else default
+
+
 def env_csv(key: str, default=None):
     value = os.getenv(key)
     if value is None:

@@ -19,6 +19,7 @@ type ImageAssetListResponse = {
 type DetectionTaskSummary = {
   task_no: string;
   status: string;
+  recognition_mode: string;
   weather_scene: string;
   object_count: number;
   can_retry: boolean;
@@ -37,11 +38,13 @@ type DetectionTaskListResponse = {
 type DetectionTaskCreateResponse = {
   task_no: string;
   status: string;
+  recognition_mode: string;
 };
 
 export function DetectionPage() {
   const queryClient = useQueryClient();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [recognitionMode, setRecognitionMode] = useState("scene_default");
   const [createScene, setCreateScene] = useState("rain_fog");
   const [uploadedImageId, setUploadedImageId] = useState<number | null>(null);
   const [uploadedImageName, setUploadedImageName] = useState("");
@@ -78,13 +81,8 @@ export function DetectionPage() {
   });
 
   const createTaskMutation = useMutation({
-    mutationFn: (imageId: number) =>
-      apiPost<DetectionTaskCreateResponse, Record<string, unknown>>("/detection/tasks", {
-        image_id: imageId,
-        weather_scene: createScene,
-        confidence_threshold: 0.25,
-        iou_threshold: 0.45,
-      }),
+    mutationFn: (payload: Record<string, unknown>) =>
+      apiPost<DetectionTaskCreateResponse, Record<string, unknown>>("/detection/tasks", payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["detection-tasks"] });
     },
@@ -102,7 +100,14 @@ export function DetectionPage() {
         setLocalError("請先上傳新圖片，或從已上傳列表中選擇一張圖片。");
         return;
       }
-      await createTaskMutation.mutateAsync(imageId);
+      const payload: Record<string, unknown> = { image_id: imageId };
+      if (recognitionMode === "image") {
+        payload.recognition_mode = "image";
+        payload.weather_scene = createScene;
+        payload.confidence_threshold = 0.25;
+        payload.iou_threshold = 0.45;
+      }
+      await createTaskMutation.mutateAsync(payload);
     } catch (error) {
       if (error instanceof Error) {
         setLocalError(error.message);
@@ -159,18 +164,35 @@ export function DetectionPage() {
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm text-slate-600">天氣場景</label>
+              <label className="text-sm text-slate-600">識別模式</label>
               <select
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm"
-                value={createScene}
-                onChange={(event) => setCreateScene(event.target.value)}
+                value={recognitionMode}
+                onChange={(event) => setRecognitionMode(event.target.value)}
               >
-                <option value="rain_fog">雨霧</option>
-                <option value="rain">雨天</option>
-                <option value="fog">霧天</option>
-                <option value="unknown">未知</option>
+                <option value="scene_default">默認場景模式</option>
+                <option value="image">圖片模式</option>
               </select>
             </div>
+            {recognitionMode === "image" ? (
+              <div className="space-y-2">
+                <label className="text-sm text-slate-600">天氣場景</label>
+                <select
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm"
+                  value={createScene}
+                  onChange={(event) => setCreateScene(event.target.value)}
+                >
+                  <option value="rain_fog">雨霧</option>
+                  <option value="rain">雨天</option>
+                  <option value="fog">霧天</option>
+                  <option value="unknown">未知</option>
+                </select>
+              </div>
+            ) : (
+              <p className="rounded-xl bg-sky-50 px-3 py-2 text-sm text-sky-800">
+                未手動指定模式時，系統會自動套用默認場景配置。
+              </p>
+            )}
             <Button
               className="w-full"
               onClick={() => void handleUploadAndCreate()}
@@ -191,7 +213,7 @@ export function DetectionPage() {
             <p>任務總數：{tasksQuery.data?.total ?? 0}</p>
             {createTaskMutation.data ? (
               <p className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">
-                最新任務：{createTaskMutation.data.task_no} / {createTaskMutation.data.status}
+                最新任務：{createTaskMutation.data.task_no} / {createTaskMutation.data.status} / {createTaskMutation.data.recognition_mode}
               </p>
             ) : null}
             {uploadMutation.error instanceof Error ? (
@@ -244,6 +266,7 @@ export function DetectionPage() {
             <tr>
               <th className="px-4 py-3 font-medium">任務編號</th>
               <th className="px-4 py-3 font-medium">狀態</th>
+              <th className="px-4 py-3 font-medium">模式</th>
               <th className="px-4 py-3 font-medium">場景</th>
               <th className="px-4 py-3 font-medium">目標數</th>
               <th className="px-4 py-3 font-medium">引擎</th>
@@ -255,6 +278,7 @@ export function DetectionPage() {
               <tr key={task.task_no} className="border-t border-slate-100">
                 <td className="px-4 py-3 font-medium text-slate-900">{task.task_no}</td>
                 <td className="px-4 py-3 text-slate-600">{task.status}</td>
+                <td className="px-4 py-3 text-slate-600">{task.recognition_mode}</td>
                 <td className="px-4 py-3 text-slate-600">{task.weather_scene}</td>
                 <td className="px-4 py-3 text-slate-600">{task.object_count}</td>
                 <td className="px-4 py-3 text-slate-600">{task.latest_record?.engine_type ?? "--"}</td>
@@ -267,7 +291,7 @@ export function DetectionPage() {
             ))}
             {!tasksQuery.data?.items?.length && !tasksQuery.isLoading ? (
               <tr className="border-t border-slate-100">
-                <td className="px-4 py-6 text-slate-500" colSpan={6}>
+                <td className="px-4 py-6 text-slate-500" colSpan={7}>
                   暫無識別任務
                 </td>
               </tr>

@@ -113,6 +113,7 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
 
     def detect(self, payload: InferenceRequest) -> dict:
         model = self._load_model()
+        runtime_context = build_runtime_context(payload)
         preprocess_options = PreprocessOptions(
             mode=payload.preprocess_mode,
             profile=payload.preprocess_profile,
@@ -135,6 +136,8 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
             source=Image.fromarray(preprocess_result.image),
             conf=payload.confidence_threshold,
             iou=payload.iou_threshold,
+            imgsz=runtime_context.image_size,
+            augment=runtime_context.augment,
             save=False,
             verbose=False,
         )
@@ -167,14 +170,16 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
             "engine_type": "yolov13",
             "engine_version": "13.0",
             "model_name": self.settings.yolov13_model_file,
-            "model_version": "v1",
+            "model_version": runtime_context.model_profile,
             "duration_ms": duration_ms,
             "result_image_path": result_image_path,
             "objects": objects,
             "raw": {
                 "mock": False,
                 "scene": payload.scene,
+                "recognition_mode": payload.recognition_mode,
                 "preprocess": preprocess_result.metadata(),
+                "runtime_options": payload.runtime_options,
             },
         }
 

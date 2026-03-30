@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import httpx
 from django.conf import settings
 
@@ -21,14 +23,21 @@ class InferenceServiceClient:
             ],
         }
 
-    def _local_mock_result(self, task_no: str, image_path: str, scene: str, preprocess: dict) -> dict:
+    def _local_mock_result(
+        self,
+        task_no: str,
+        image_path: str,
+        recognition_mode: str,
+        scene: str,
+        preprocess: dict,
+        runtime_options: dict,
+    ) -> dict:
         if image_path.endswith(".jpg"):
             result_image_path = image_path.replace(".jpg", "_result.jpg")
         elif image_path.endswith(".png"):
             result_image_path = image_path.replace(".png", "_result.png")
         else:
             result_image_path = f"{image_path}_result"
-
         return {
             "task_no": task_no,
             "success": True,
@@ -49,18 +58,15 @@ class InferenceServiceClient:
             "raw": {
                 "mock": True,
                 "scene": scene,
+                "recognition_mode": recognition_mode,
                 "fallback": True,
                 "preprocess": preprocess,
+                "runtime_options": runtime_options,
             },
         }
 
     def _request(self, method: str, path: str, **kwargs) -> dict:
-        response = httpx.request(
-            method,
-            f"{self.base_url}{path}",
-            timeout=self.timeout,
-            **kwargs,
-        )
+        response = httpx.request(method, f"{self.base_url}{path}", timeout=self.timeout, **kwargs)
         response.raise_for_status()
         return response.json()
 
@@ -68,6 +74,7 @@ class InferenceServiceClient:
         self,
         task_no: str,
         image_path: str,
+        recognition_mode: str,
         confidence_threshold: float,
         iou_threshold: float,
         scene: str,
@@ -76,6 +83,7 @@ class InferenceServiceClient:
         preprocess_algorithms: list[str] | None = None,
         preprocess_algorithm_params: dict | None = None,
         preprocess_enable_gamma: bool = False,
+        runtime_options: dict | None = None,
     ) -> dict:
         preprocess = {
             "mode": preprocess_mode,
@@ -87,6 +95,7 @@ class InferenceServiceClient:
         payload = {
             "task_no": task_no,
             "image_path": image_path,
+            "recognition_mode": recognition_mode,
             "confidence_threshold": confidence_threshold,
             "iou_threshold": iou_threshold,
             "scene": scene,
@@ -95,17 +104,24 @@ class InferenceServiceClient:
             "preprocess_algorithms": list(preprocess_algorithms or []),
             "preprocess_algorithm_params": dict(preprocess_algorithm_params or {}),
             "preprocess_enable_gamma": preprocess_enable_gamma,
+            "runtime_options": dict(runtime_options or {}),
             "mock": self.use_mock,
         }
         try:
             return self._request("POST", "/internal/inference/detect", json=payload)
         except httpx.HTTPError:
             if self.use_mock:
-                return self._local_mock_result(task_no, image_path, scene, preprocess)
+                return self._local_mock_result(
+                    task_no,
+                    image_path,
+                    recognition_mode,
+                    scene,
+                    preprocess,
+                    dict(runtime_options or {}),
+                )
             raise
 
     def get_runtime_summary(self) -> dict:
-        # 這裡統一封裝 FastAPI 運行資訊，避免 Django 業務層直接處理細節。
         try:
             health = self._request("GET", "/internal/health")
             model = self._request("GET", "/internal/models/current")
