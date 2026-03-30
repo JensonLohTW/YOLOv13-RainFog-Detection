@@ -5,10 +5,12 @@ EpochWatcher：訓練期間的後台監控執行緒。
   1. 複製 last.pt → checkpoints/epoch_NNN_mapX.XXXX.pt
   2. 依 mAP50(B) 排序所有已知 epoch，保留 Top-3 與 Bottom-3 的 .pt 檔案
   3. 更新 epoch_report.md（含「基準 vs 當前最佳」對比表 + Top3 / Bot3 標記）
-  4. 更新 training_curve.png（mAP50 折線圖 + 基準水平虛線）
+  4. 委派 TrainingVisualizer 渲染全套圖表（training_curve / chart_metrics /
+     chart_losses / chart_improvement）並匯出 metrics_raw.json / .csv
 
 基準指標（baseline_metrics.json）由 train.py 在訓練前自動寫入，
 EpochWatcher 以 lazy load 方式讀取，二者完全解耦。
+圖表與原始數據輸出邏輯完全集中於 TrainingVisualizer，本模組不持有任何 matplotlib 代碼。
 """
 from __future__ import annotations
 
@@ -21,6 +23,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from training.training_visualizer import BaselineMetrics, EpochMetrics, TrainingVisualizer
+
 logger = logging.getLogger(__name__)
 
 _TOP_K = 3
@@ -31,7 +35,12 @@ _COPY_DELAY    = 5    # 秒，偵測到新 epoch 後等待 last.pt 寫入完成
 # ─── Data model ──────────────────────────────────────────────────────────────
 
 class _EpochRecord:
-    __slots__ = ("epoch", "map50", "map50_95", "precision", "recall", "time_sec")
+    __slots__ = (
+        "epoch", "map50", "map50_95", "precision", "recall", "time_sec",
+        "train_box_loss", "train_cls_loss", "train_dfl_loss",
+        "val_box_loss",   "val_cls_loss",   "val_dfl_loss",
+        "lr",
+    )
 
     def __init__(self, row: dict) -> None:
         def _f(k: str) -> float:
@@ -40,16 +49,39 @@ class _EpochRecord:
             except (ValueError, TypeError):
                 return 0.0
 
-        self.epoch     = int(_f("epoch"))
-        self.time_sec  = _f("time")
-        self.map50     = _f("metrics/mAP50(B)")
-        self.map50_95  = _f("metrics/mAP50-95(B)")
-        self.precision = _f("metrics/precision(B)")
-        self.recall    = _f("metrics/recall(B)")
+        self.epoch           = int(_f("epoch"))
+        self.time_sec        = _f("time")
+        self.map50           = _f("metrics/mAP50(B)")
+        self.map50_95        = _f("metrics/mAP50-95(B)")
+        self.precision       = _f("metrics/precision(B)")
+        self.recall          = _f("metrics/recall(B)")
+        self.train_box_loss  = _f("train/box_loss")
+        self.train_cls_loss  = _f("train/cls_loss")
+        self.train_dfl_loss  = _f("train/dfl_loss")
+        self.val_box_loss    = _f("val/box_loss")
+        self.val_cls_loss    = _f("val/cls_loss")
+        self.val_dfl_loss    = _f("val/dfl_loss")
+        self.lr              = _f("lr/pg0")
 
     @property
     def ckpt_stem(self) -> str:
         return f"epoch_{self.epoch:03d}_map{self.map50:.4f}"
+
+    def to_epoch_metrics(self) -> EpochMetrics:
+        return EpochMetrics(
+            epoch=self.epoch,
+            map50=self.map50,
+            map50_95=self.map50_95,
+            precision=self.precision,
+            recall=self.recall,
+            train_box_loss=self.train_box_loss,
+            train_cls_loss=self.train_cls_loss,
+            train_dfl_loss=self.train_dfl_loss,
+            val_box_loss=self.val_box_loss,
+            val_cls_loss=self.val_cls_loss,
+            val_dfl_loss=self.val_dfl_loss,
+            lr=self.lr,
+        )
 
 
 # ─── Watcher ─────────────────────────────────────────────────────────────────
@@ -70,6 +102,7 @@ class EpochWatcher:
         self._thread: threading.Thread | None = None
         self._baseline: dict | None = None
         self._baseline_path = self.run_dir / "baseline_metrics.json"
+        self._visualizer = TrainingVisualizer(run_dir=self.run_dir, total_epochs=total_epochs)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -289,63 +322,21 @@ class EpochWatcher:
         out.write_text("".join(lines), encoding="utf-8")
 
     def _write_chart(self) -> None:
+        """委派 TrainingVisualizer 渲染全套圖表與原始數據。"""
         if not self._records:
             return
-        try:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-        except ImportError:
-            logger.debug("[EpochWatcher] matplotlib 不可用，跳過圖表")
-            return
+        epoch_metrics = [r.to_epoch_metrics() for r in self._records]
+        baseline = self._build_baseline_metrics()
+        self._visualizer.render(epoch_metrics, baseline, self._last_epoch_seen)
 
-        epochs = [r.epoch    for r in self._records]
-        map50  = [r.map50    for r in self._records]
-        map95  = [r.map50_95 for r in self._records]
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(epochs, map50, "o-", color="#0ea5e9", linewidth=2,  label="mAP50")
-        ax.plot(epochs, map95, "s--", color="#f59e0b", linewidth=1.5, label="mAP50-95")
-
-        if self._baseline:
-            b_map50   = self._baseline.get("map50", 0.0)
-            b_map95   = self._baseline.get("map50_95", 0.0)
-            b_model   = self._baseline.get("model", "YOLOv13")
-            x_max = max(self.total_epochs or 1, max(epochs) if epochs else 1) + 1
-            ax.axhline(b_map50, color="#6b7280", linestyle="--", linewidth=1.2,
-                       label=f"Baseline mAP50 ({b_model}: {b_map50:.4f})")
-            ax.axhline(b_map95, color="#9ca3af", linestyle=":",  linewidth=1.0,
-                       label=f"Baseline mAP50-95 ({b_map95:.4f})")
-            ax.text(x_max * 0.01, b_map50 + 0.01, f"{b_map50:.4f}",
-                    color="#6b7280", fontsize=7, va="bottom")
-
-        # 標記 Top-3 / Bottom-3
-        sorted_asc = sorted(self._records, key=lambda r: r.map50)
-        bot_set = {r.epoch for r in sorted_asc[:_TOP_K]}
-        top_set = {r.epoch for r in sorted_asc[-_TOP_K:]}
-        for rec in self._records:
-            if rec.epoch in top_set:
-                ax.annotate(f"Top\n{rec.map50:.3f}", xy=(rec.epoch, rec.map50),
-                            xytext=(0, 8), textcoords="offset points",
-                            ha="center", fontsize=7, color="#16a34a")
-            elif rec.epoch in bot_set:
-                ax.annotate(f"Bot\n{rec.map50:.3f}", xy=(rec.epoch, rec.map50),
-                            xytext=(0, -16), textcoords="offset points",
-                            ha="center", fontsize=7, color="#dc2626")
-
-        total = self.total_epochs or (max(epochs) if epochs else 1)
-        ax.set_xlim(0, max(total + 1, max(epochs) + 1))
-        ax.set_ylim(0, 1.05)
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("Score")
-        ax.set_title(
-            f"訓練曲線（已完成 {self._last_epoch_seen}/{self.total_epochs or '?'} epoch）\n"
-            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    def _build_baseline_metrics(self) -> BaselineMetrics | None:
+        if not self._baseline:
+            return None
+        b = self._baseline
+        return BaselineMetrics(
+            map50=b.get("map50", 0.0),
+            map50_95=b.get("map50_95", 0.0),
+            precision=b.get("precision", 0.0),
+            recall=b.get("recall", 0.0),
+            model=b.get("model", ""),
         )
-        ax.legend()
-        ax.grid(linestyle="--", alpha=0.4)
-        fig.tight_layout()
-
-        out = self.run_dir / "training_curve.png"
-        fig.savefig(out, dpi=150)
-        plt.close(fig)

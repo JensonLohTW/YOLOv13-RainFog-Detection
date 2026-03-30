@@ -35,6 +35,7 @@ from common.weather_preprocess import prepare_dataset_with_preprocessing  # noqa
 from inference_service.core.config import Settings  # noqa: E402
 from training.config_utils import parse_args_with_config  # noqa: E402
 from training.preprocess_utils import add_preprocess_arguments, build_preprocess_options  # noqa: E402
+from training.split_dataset import run_split  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -97,8 +98,60 @@ def _build_parser(settings: Settings) -> argparse.ArgumentParser:
     default_name = "rainfog_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     parser.add_argument("--name", default=default_name, help="訓練執行名稱（區分不同實驗）")
     parser.add_argument("--resume", action="store_true", help="從上次中斷處繼續訓練")
+    parser.add_argument("--lr0",    type=float, default=0.01,  help="初始學習率（預設 0.01）")
+    parser.add_argument("--lrf",    type=float, default=0.01,  help="最終學習率比例（lr0 * lrf = 最終 lr，預設 0.01）")
+    parser.add_argument("--cos-lr", action="store_true",       help="使用 cosine LR 衰減排程（預設 False）")
+    # ── 訓練前重新分割資料集 ──────────────────────────────────────────────
+    parser.add_argument(
+        "--resplit", action="store_true",
+        help="訓練開始前自動重新隨機分割 train/val（預設 False）",
+    )
+    parser.add_argument(
+        "--resplit-val-ratio", type=float, default=0.2,
+        help="重新分割時的 val 比例（預設 0.2）",
+    )
+    parser.add_argument(
+        "--resplit-seed", type=int, default=-1,
+        help="重新分割隨機種子；-1 = 每次不同（真正隨機），>=0 = 固定可重現",
+    )
+    parser.add_argument(
+        "--resplit-source", default="dawn-dataset",
+        help="分割來源子目錄，相對於 datasets_root（預設 dawn-dataset）",
+    )
     add_preprocess_arguments(parser)
     return parser
+
+
+def _maybe_resplit(args: argparse.Namespace, settings: Settings) -> dict | None:
+    """
+    若 --resplit 旗標開啟，在訓練開始前執行一次隨機 train/val 分割。
+
+    Returns:
+        分割結果 dict（含 train/val 數量與實際 seed），未啟用時回傳 None。
+    """
+    if not getattr(args, "resplit", False):
+        return None
+    logger.info(
+        "=== 訓練前重新分割資料集 === val_ratio=%.2f  seed=%s",
+        args.resplit_val_ratio,
+        args.resplit_seed if args.resplit_seed >= 0 else "random",
+    )
+    try:
+        result = run_split(
+            datasets_root=settings.datasets_root,
+            source=args.resplit_source,
+            target=args.dataset,
+            val_ratio=args.resplit_val_ratio,
+            seed=args.resplit_seed,
+        )
+        logger.info(
+            "分割完成：train=%d  val=%d  actual_seed=%s",
+            result["train"], result["val"], result["seed"],
+        )
+        return result
+    except (FileNotFoundError, RuntimeError) as exc:
+        logger.error("資料集分割失敗，訓練中止：%s", exc)
+        sys.exit(1)
 
 
 def _validate_paths(settings: Settings, model_file: str, dataset_name: str) -> tuple[Path, Path]:
@@ -221,6 +274,7 @@ def _write_experiment_manifest(
     preprocess_options,
     prepared_dataset,
     model_path: Path,
+    resplit_result: dict | None = None,
 ) -> None:
     manifest = {
         "run_name": args.name,
@@ -234,6 +288,13 @@ def _write_experiment_manifest(
         "workers": args.workers,
         "patience": args.patience,
         "resume": args.resume,
+        "resplit": {
+            "enabled": bool(getattr(args, "resplit", False)),
+            "val_ratio": getattr(args, "resplit_val_ratio", 0.2),
+            "seed_param": getattr(args, "resplit_seed", -1),
+            "source": getattr(args, "resplit_source", ""),
+            "result": resplit_result,
+        },
         "preprocess": preprocess_options.to_dict(),
         "prepared_dataset": prepared_dataset.to_dict(),
     }
@@ -316,6 +377,9 @@ def _write_summary(model, args: argparse.Namespace, save_dir: Path) -> None:
         f"| device | {args.device or 'auto'} |\n",
         f"| workers | {args.workers} |\n",
         f"| patience | {args.patience} |\n",
+        f"| lr0 | {getattr(args, 'lr0', 0.01)} |\n",
+        f"| lrf | {getattr(args, 'lrf', 0.01)} |\n",
+        f"| cos_lr | {getattr(args, 'cos_lr', False)} |\n",
         f"| preprocess_mode | {getattr(args, 'preprocess_mode', 'off')} |\n",
         f"| preprocess_profile | {getattr(args, 'preprocess_profile', '') or 'auto'} |\n",
         f"| preprocess_algorithms | {', '.join(getattr(args, 'preprocess_algorithms', [])) or 'auto'} |\n",
@@ -404,6 +468,8 @@ def main() -> None:
     logger.info("資料集目錄：%s", settings.datasets_root)
     logger.info("YOLOv13 原始碼：%s", settings.yolov13_root)
 
+    resplit_result = _maybe_resplit(args, settings)
+
     model_path, data_yaml = _validate_paths(settings, args.model, args.dataset)
     prepared_dataset = prepare_dataset_with_preprocessing(
         settings.datasets_root,
@@ -412,7 +478,7 @@ def main() -> None:
         output_root=args.prepared_datasets_root or None,
         overwrite=args.preprocess_overwrite,
     )
-    _write_experiment_manifest(run_dir, args, preprocess_options, prepared_dataset, model_path)
+    _write_experiment_manifest(run_dir, args, preprocess_options, prepared_dataset, model_path, resplit_result)
 
     logger.info("--- 訓練參數 ---")
     logger.info("  模型：%s", model_path)
@@ -430,6 +496,12 @@ def main() -> None:
     )
     logger.info("  輸出：%s/%s", args.project, args.name)
     logger.info("  resume=%s", args.resume)
+    logger.info(
+        "  resplit=%s  val_ratio=%s  seed=%s",
+        getattr(args, "resplit", False),
+        getattr(args, "resplit_val_ratio", 0.2),
+        getattr(args, "resplit_seed", -1) if getattr(args, "resplit_seed", -1) >= 0 else "random",
+    )
     logger.info("----------------")
 
     _inject_yolov13_path(settings)
@@ -450,6 +522,9 @@ def main() -> None:
         "resume": args.resume,
         "exist_ok": True,
         "verbose": True,
+        "lr0": args.lr0,
+        "lrf": args.lrf,
+        "cos_lr": args.cos_lr,
     }
     if args.device:
         train_kwargs["device"] = args.device

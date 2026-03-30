@@ -1,0 +1,32 @@
+# 從 best.pt 繼續訓練 50 epoch 的超參數配置
+# 改進：lrf=0.001 + cos_lr=true
+# batch=4 + imgsz=512（RTX 3050 Ti 4GB 限制，batch=8/imgsz=640 導致 CUDA OOM）
+#
+# 使用方式（在 backend/ 目錄下）：
+#   uv run python -m training.train --config training/configs/finetune_best_cosine.yaml
+
+model: "C:\\Users\\Administrator\\Downloads\\YOLOv13-RainFog-Detection\\data\\train_runs\\rainfog_20260329_121743\\weights\\best.pt"
+dataset: rainfog_detection
+epochs: 50
+batch: 4
+imgsz: 512
+device: "0"
+workers: 0
+patience: 20
+lr0: 0.001
+lrf: 0.001
+cos_lr: true
+name: rainfog_v2
+
+# 訓練前重新分割 train/val（每次執行時以不同隨機種子重新洗牌）
+resplit: true
+resplit_val_ratio: 0.2
+resplit_seed: -1    # -1 = 每次真正隨機；改為固定整數（如 42）可重現
+resplit_source: "dawn-dataset"
+
+preprocess:
+  mode: "off"
+  profile: ""
+  algorithms: []
+  algorithm_params: {}
+  enable_gamma: false
