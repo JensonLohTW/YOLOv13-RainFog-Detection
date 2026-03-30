@@ -29,6 +29,8 @@ from common.weather_preprocess import PreprocessOptions, preprocess_image
 from inference_service.adapters.base import BaseInferenceAdapter
 from inference_service.core.config import Settings
 from inference_service.schemas.inference import InferenceRequest
+from inference_service.services.preprocess_artifact import PreprocessArtifactService
+from inference_service.services.runtime_context import build_runtime_context
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._model = None  # 懶加載單例
+        self.preprocess_artifact_service = PreprocessArtifactService(settings, logger=logger)
 
     # ──────────────────────────────────────────────
     #  describe
@@ -93,7 +96,7 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
         if not model_path.exists():
             raise FileNotFoundError(
                 f"模型權重檔不存在：{model_path}\n"
-                f"請下載 {self.settings.yolov13_model_file} 並放至：\n"
+                f"請下載 {self.settings.yolov13_model_file} 並放置：\n"
                 f"  {self.settings.models_root}/\n"
                 "可用規格：yolov13n.pt / yolov13s.pt / yolov13l.pt / yolov13x.pt\n"
                 "下載連結：https://github.com/iMoonLab/yolov13/releases"
@@ -128,6 +131,11 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
             preprocess_options,
             image_path=payload.image_path,
             scene_hint=payload.scene,
+        )
+        artifact_result = self.preprocess_artifact_service.save(
+            payload.task_no,
+            preprocess_result.image,
+            payload.image_path,
         )
 
         logger.debug("開始推理：task_no=%s  image=%s", payload.task_no, payload.image_path)
@@ -179,6 +187,7 @@ class YoloV13InferenceAdapter(BaseInferenceAdapter):
                 "scene": payload.scene,
                 "recognition_mode": payload.recognition_mode,
                 "preprocess": preprocess_result.metadata(),
+                "preprocess_artifact": artifact_result.metadata(),
                 "runtime_options": payload.runtime_options,
             },
         }

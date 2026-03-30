@@ -12,7 +12,7 @@ class InferencePipeline:
     def _build_adapter(self) -> BaseInferenceAdapter:
         if settings.model_mode == "yolov13":
             return YoloV13InferenceAdapter(settings)
-        return MockInferenceAdapter()
+        return MockInferenceAdapter(settings)
 
     def current_model(self) -> dict:
         try:

@@ -1,8 +1,17 @@
+from common.weather_preprocess import PreprocessOptions, preprocess_image_file
+from inference_service.core.config import Settings
 from inference_service.schemas.inference import InferenceRequest
+from inference_service.services.preprocess_artifact import PreprocessArtifactService
 from inference_service.services.runtime_context import build_runtime_context
 
 
 class MockInferenceAdapter:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.preprocess_options_class = PreprocessOptions
+        self.preprocess_image_file = preprocess_image_file
+        self.preprocess_artifact_service = PreprocessArtifactService(settings)
+
     def describe(self):
         return {
             "engine_type": "mock",
@@ -12,13 +21,24 @@ class MockInferenceAdapter:
         }
 
     def detect(self, payload: InferenceRequest):
-        preprocess = {
-            "mode": payload.preprocess_mode,
-            "profile": payload.preprocess_profile,
-            "algorithms": list(payload.preprocess_algorithms),
-            "algorithm_params": dict(payload.preprocess_algorithm_params),
-            "enable_gamma": payload.preprocess_enable_gamma,
-        }
+        preprocess_options = self.preprocess_options_class(
+            mode=payload.preprocess_mode,
+            profile=payload.preprocess_profile,
+            scene=payload.scene,
+            algorithms=list(payload.preprocess_algorithms),
+            algorithm_params=dict(payload.preprocess_algorithm_params),
+            enable_gamma=payload.preprocess_enable_gamma,
+        )
+        preprocess_result = self.preprocess_image_file(
+            payload.image_path,
+            preprocess_options,
+            scene_hint=payload.scene,
+        )
+        artifact_result = self.preprocess_artifact_service.save(
+            payload.task_no,
+            preprocess_result.image,
+            payload.image_path,
+        )
         runtime_context = build_runtime_context(payload)
         if "." in payload.image_path:
             stem, suffix = payload.image_path.rsplit(".", 1)
@@ -46,7 +66,8 @@ class MockInferenceAdapter:
                 "mock": True,
                 "scene": payload.scene,
                 "recognition_mode": payload.recognition_mode,
-                "preprocess": preprocess,
+                "preprocess": preprocess_result.metadata(),
+                "preprocess_artifact": artifact_result.metadata(),
                 "runtime_options": payload.runtime_options,
             },
         }

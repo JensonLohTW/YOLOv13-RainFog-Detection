@@ -37,6 +37,9 @@ class Settings(BaseSettings):
 
     # ── 結果輸出 ──────────────────────────────────────────────
     results_root: str = str(_REPO_ROOT / "data" / "results")
+    preprocess_artifact_enabled: bool = True
+    preprocess_artifact_root: str = str(_REPO_ROOT / "data" / "results" / "preprocess_artifacts")
+    preprocess_artifact_fail_on_error: bool = False
 
     model_config = SettingsConfigDict(
         env_prefix="INFERENCE_",
@@ -60,6 +63,9 @@ class Settings(BaseSettings):
 
     def get_datasets_root(self) -> Path:
         return Path(self.datasets_root)
+
+    def get_preprocess_artifact_root(self) -> Path:
+        return Path(self.preprocess_artifact_root)
 
 
 settings = Settings()
