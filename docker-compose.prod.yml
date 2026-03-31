@@ -70,6 +70,14 @@ services:
     # 原專案的 FastAPI 路徑
     command: >
       bash -c "uv run python -m uvicorn inference_service.main:app --host 0.0.0.0 --port 9000"
+    # 需要主機安裝 nvidia-container-toolkit 才能使用 GPU
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     volumes:
       - ./data:/data
       # yolov13-main 包含客製 ultralytics，提供 YOLOv13 模型為架支援

@@ -49,7 +49,6 @@ dev = [
 
 [tool.uv]
 package = false
-torch-backend = "cpu"
 
 [tool.ruff]
 line-length = 100

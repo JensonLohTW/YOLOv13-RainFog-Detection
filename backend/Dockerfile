@@ -18,15 +18,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 ENV UV_SYSTEM_PYTHON=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_TORCH_BACKEND=cpu \
     UV_HTTP_TIMEOUT=300
 
-# 複製 pyproject.toml（不含 uv.lock）以便讓 uv 在 Docker 內重新解析，
-# 使 UV_TORCH_BACKEND=cpu 生效，選擇 CPU-only PyTorch (~200MB) 而非 CUDA (~2.5GB)
-COPY pyproject.toml ./
+# 複製 package 描述檔與 lock 檔以利用 docker cache 分層緩存
+COPY pyproject.toml uv.lock ./
 
-# 安裝後端所有依賴套件，--extra yolo 安裝 ultralytics (CPU torch 版本)
-RUN uv sync --no-dev --extra yolo
+# 安裝後端所有依賴套件，--extra yolo 安裝 ultralytics (CUDA torch)
+RUN uv sync --frozen --no-dev --extra yolo
 
 # 將專案代碼的所有內容複製到工作目錄中
 COPY . .
