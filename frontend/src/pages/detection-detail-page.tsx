@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { apiGet, apiPost } from "@/services/api";
+import { apiGet, apiPost, getMediaUrl } from "@/services/api";
 
 type DetectionObject = {
   class_id: number;
@@ -127,7 +127,7 @@ export function DetectionDetailPage() {
           <h3 className="text-lg font-medium text-slate-900">原始圖片</h3>
           <div className="mt-4 overflow-hidden rounded-2xl bg-slate-50">
             {detail?.image.file_url ? (
-              <img alt={detail.image.original_name} className="h-full w-full object-contain" src={detail.image.file_url} />
+              <img alt={detail.image.original_name} className="h-full w-full object-contain" src={getMediaUrl(detail.image.file_url)} />
             ) : (
               <div className="flex h-64 items-center justify-center text-sm text-slate-400">暫無圖片</div>
             )}
@@ -138,10 +138,10 @@ export function DetectionDetailPage() {
           <h3 className="text-lg font-medium text-slate-900">結果圖片</h3>
           <div className="mt-4 overflow-hidden rounded-2xl bg-slate-50">
             {latestRecord?.result_image_url ? (
-              <img alt="result" className="h-full w-full object-contain" src={latestRecord.result_image_url} />
+              <img alt="result" className="h-full w-full object-contain" src={getMediaUrl(latestRecord.result_image_url)} />
             ) : latestRecord?.result_image_path ? (
               <div className="flex h-64 items-center justify-center px-6 text-center text-sm text-slate-500">
-                當前為 Mock / 開發階段，結果圖尚未實際生成，可先參考結果路徑：
+                結果圖已生成，路徑：
                 <br />
                 {latestRecord.result_image_path}
               </div>

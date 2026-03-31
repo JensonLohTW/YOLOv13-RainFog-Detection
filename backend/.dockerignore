@@ -1,0 +1,27 @@
+# Python virtual environment (5GB+ with PyTorch — exclude from build context)
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Dev/test artifacts
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Logs and run files
+logs/
+.run/
+
+# Local env overrides (injected via docker-compose environment: instead)
+.env
+
+# OS noise
+.DS_Store
+Thumbs.db

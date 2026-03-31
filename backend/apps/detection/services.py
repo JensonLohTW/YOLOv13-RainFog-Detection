@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -119,7 +121,7 @@ class DetectionTaskService:
             },
             response_payload=inference_response,
             result_image_path=inference_response.get("result_image_path", ""),
-            result_image_url="",
+            result_image_url=_result_image_url(inference_response.get("result_image_path", "")),
             object_count=len(objects),
             avg_confidence=(sum(confidences) / len(confidences)) if confidences else None,
             duration_ms=inference_response.get("duration_ms", 0),
@@ -146,3 +148,23 @@ class DetectionTaskService:
         task.save(update_fields=["status", "finished_at", "error_message", "updated_at"])
         self.dashboard_service.clear_overview_cache()
         return task
+
+
+def _result_image_url(result_image_path: str) -> str:
+    """Convert a result image filesystem path to a Django-serveable URL.
+
+    The path may be absolute or relative (to the backend/ directory).
+    Returns a /media-results/... URL if the file is under RESULTS_ROOT,
+    otherwise returns an empty string.
+    """
+    if not result_image_path:
+        return ""
+    try:
+        p = Path(result_image_path)
+        if not p.is_absolute():
+            p = (settings.BACKEND_DIR / p).resolve()
+        results_root = Path(settings.RESULTS_ROOT).resolve()
+        rel = p.relative_to(results_root)
+        return settings.RESULTS_URL + str(rel).replace("\\", "/")
+    except (ValueError, AttributeError):
+        return ""

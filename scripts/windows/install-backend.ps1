@@ -11,4 +11,4 @@ if (-not (Test-Path $BackendEnv) -and (Test-Path $BackendEnvExample)) {
 }
 
 Set-Location (Join-Path $RepoRoot "backend")
-uv sync
+uv sync --extra yolo

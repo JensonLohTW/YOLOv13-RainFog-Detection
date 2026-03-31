@@ -82,6 +82,8 @@ STATIC_URL = "/static/"
 STATIC_ROOT = REPO_ROOT / "data" / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = REPO_ROOT / "data" / "uploads"
+RESULTS_URL = "/media-results/"
+RESULTS_ROOT = REPO_ROOT / "data" / "results"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -40,6 +40,12 @@ RUN echo 'server {\n\
         proxy_pass http://backend:8000;\n\
         proxy_set_header Host $host;\n\
     }\n\
+    \n\
+    # 推理結果圖片代理\n\
+    location /media-results/ {\n\
+        proxy_pass http://backend:8000;\n\
+        proxy_set_header Host $host;\n\
+    }\n\
 }' > /etc/nginx/conf.d/default.conf
 
 # 暴露出服務對內 80 端口 (外部在 Compose 重導至 5173 或 80)

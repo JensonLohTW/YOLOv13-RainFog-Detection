@@ -2,6 +2,21 @@ import { useAuthStore } from "@/stores/auth-store";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
+function _backendOrigin(): string {
+  try {
+    return new URL(API_BASE_URL).origin;
+  } catch {
+    return "";
+  }
+}
+const BACKEND_ORIGIN = _backendOrigin();
+
+export function getMediaUrl(url: string): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return BACKEND_ORIGIN + url;
+}
+
 type ApiEnvelope<T> = {
   code: number;
   message: string;

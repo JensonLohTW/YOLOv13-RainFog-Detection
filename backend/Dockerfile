@@ -1,5 +1,5 @@
 # 採用 Python 3.10-slim 輕量化底層鏡像，匹配我們要求的程式碼型別語法 (list[str] | None)
-FROM python:3.10-slim
+FROM python:3.10-slim-bookworm
 
 # 設定工作目錄
 WORKDIR /app
@@ -17,13 +17,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 # 宣告環境變數，強制令 `uv` 行為作用於整個系統 Python (因為我們已處於 Docker 隔離環境中)
 ENV UV_SYSTEM_PYTHON=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_TORCH_BACKEND=cpu \
+    UV_HTTP_TIMEOUT=300
 
-# 首要複製專案之 package 描述檔與 lock 檔以便利用 docker cache 分層緩存
-COPY pyproject.toml uv.lock ./
+# 複製 pyproject.toml（不含 uv.lock）以便讓 uv 在 Docker 內重新解析，
+# 使 UV_TORCH_BACKEND=cpu 生效，選擇 CPU-only PyTorch (~200MB) 而非 CUDA (~2.5GB)
+COPY pyproject.toml ./
 
-# 安裝後端所有依賴套件套件，其中 --extra yolo 代表我們預設支援真實推論環境
-RUN uv sync --frozen --no-dev --extra yolo
+# 安裝後端所有依賴套件，--extra yolo 安裝 ultralytics (CPU torch 版本)
+RUN uv sync --no-dev --extra yolo
 
 # 將專案代碼的所有內容複製到工作目錄中
 COPY . .

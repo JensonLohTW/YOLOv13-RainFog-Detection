@@ -26,5 +26,5 @@ urlpatterns = [
     path("api/v1/training/", include("apps.training.urls")),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns += static(settings.RESULTS_URL, document_root=settings.RESULTS_ROOT)

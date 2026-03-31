@@ -13,4 +13,4 @@ if [[ ! -f "$REPO_ROOT/backend/.env" && -f "$REPO_ROOT/backend/.env.example" ]];
 fi
 
 cd "$REPO_ROOT/backend"
-uv sync
+uv sync --extra yolo

@@ -39,15 +39,18 @@ services:
       - "8000:8000"
     environment:
       # 自動覆寫 .env，使 Docker 網路能解析互通別名
-      - DB_HOST=db
+      - MYSQL_HOST=db
       - REDIS_URL=redis://redis:6379/1
       - INFERENCE_BASE_URL=http://fastapi:9000
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - DJANGO_DEBUG=False
+      - DJANGO_SETTINGS_MODULE=config.settings.base
     command: >
       bash -c "uv run python manage.py migrate --noinput &&
-               uv run gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4"
+               uv run uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers 4"
     volumes:
-      # 為了圖形分析而掛載在外部 (不存於 Image)，可與本機同步
-      - ./data:/app/data
+      # REPO_ROOT 在容器內解析為 /，因此 data/ 需掛載至 /data
+      - ./data:/data
 
   fastapi:
     build:
@@ -60,13 +63,17 @@ services:
     ports:
       - "9000:9000"
     environment:
-      # 相依於 .env 設定模型啟動，您可以修改為 yolov13 於真機上線推論
       - REDIS_URL=redis://redis:6379/1
+      - INFERENCE_MODEL_MODE=yolov13
+      - INFERENCE_YOLOV13_MODEL_FILE=rainfog_best.pt
+      - INFERENCE_USE_MOCK=False
     # 原專案的 FastAPI 路徑
     command: >
       bash -c "uv run python -m uvicorn inference_service.main:app --host 0.0.0.0 --port 9000"
     volumes:
-      - ./data:/app/data
+      - ./data:/data
+      # yolov13-main 包含客製 ultralytics，提供 YOLOv13 模型為架支援
+      - ./yolov13-main:/yolov13-main
 
   frontend:
     build:

@@ -13,7 +13,7 @@ class ImageAssetService:
 
         image = ImageAsset(
             file=uploaded_file,
-            uploaded_by=user,
+            uploaded_by=user if user and getattr(user, "is_authenticated", False) else None,
             **metadata,
         )
         image.save()
