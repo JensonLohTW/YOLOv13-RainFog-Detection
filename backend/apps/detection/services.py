@@ -150,6 +150,68 @@ class DetectionTaskService:
         return task
 
 
+@dataclass
+class PreprocessPreviewRequest:
+    image: ImageAsset
+    preprocess_mode: str = "off"
+    preprocess_profile: str = ""
+    preprocess_algorithms: list[str] | None = None
+    preprocess_algorithm_params: dict[str, object] | None = None
+    preprocess_enable_gamma: bool = False
+    scene_hint: str = ""
+
+
+@dataclass
+class PreprocessPreviewResult:
+    original_image_url: str
+    preview_image_url: str
+    applied: bool
+    raw_scene: str
+    scene: str
+    scene_source: str
+    scene_debug: dict[str, object]
+    algorithms: list[str]
+
+
+class PreprocessPreviewService:
+    def run(self, request: PreprocessPreviewRequest) -> PreprocessPreviewResult:
+        from common.weather_preprocess.pipeline import PreprocessOptions, preprocess_image_file
+
+        image_path = Path(request.image.file.path)
+        options = PreprocessOptions(
+            mode=request.preprocess_mode or "off",
+            profile=request.preprocess_profile or "",
+            algorithms=list(request.preprocess_algorithms or []),
+            algorithm_params=dict(request.preprocess_algorithm_params or {}),
+            enable_gamma=bool(request.preprocess_enable_gamma),
+        )
+
+        preview_dir = Path(settings.RESULTS_ROOT) / "preprocess_preview"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        output_path = preview_dir / f"prev_{image_path.stem}_{options.signature()}{image_path.suffix}"
+
+        result = preprocess_image_file(
+            image_path,
+            options,
+            output_path=output_path,
+            scene_hint=request.scene_hint,
+        )
+
+        preview_url = _result_image_url(str(output_path))
+        original_url = request.image.file_url if hasattr(request.image, "file_url") else ""
+
+        return PreprocessPreviewResult(
+            original_image_url=original_url,
+            preview_image_url=preview_url,
+            applied=result.applied,
+            raw_scene=result.raw_scene,
+            scene=result.scene,
+            scene_source=result.scene_source,
+            scene_debug=result.scene_debug,
+            algorithms=result.algorithms,
+        )
+
+
 def _result_image_url(result_image_path: str) -> str:
     """Convert a result image filesystem path to a Django-serveable URL.
 

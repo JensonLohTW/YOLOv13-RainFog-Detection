@@ -56,12 +56,12 @@ function Stop-ServiceByPidFile {
     return
   }
 
-  $Pid = Get-Content $PidFile
-  if (Get-Process -Id $Pid -ErrorAction SilentlyContinue) {
-    Stop-Process -Id $Pid -Force
-    Write-Host "[INFO] Stopped $Name, PID=$Pid"
+  $ServicePid = Get-Content $PidFile
+  if (Get-Process -Id $ServicePid -ErrorAction SilentlyContinue) {
+    Stop-Process -Id $ServicePid -Force
+    Write-Host "[INFO] Stopped $Name, PID=$ServicePid"
   } else {
-    Write-Host "[WARN] $Name PID=$Pid not found, cleaning up PID file."
+    Write-Host "[WARN] $Name PID=$ServicePid not found, cleaning up PID file."
   }
 
   Remove-Item $PidFile -Force

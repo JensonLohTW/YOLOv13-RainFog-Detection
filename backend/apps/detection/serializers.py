@@ -30,6 +30,21 @@ class DetectionTaskCreateSerializer(serializers.Serializer):
         return value
 
 
+class PreprocessPreviewSerializer(serializers.Serializer):
+    image_id = serializers.IntegerField()
+    preprocess_mode = serializers.ChoiceField(choices=["off", "auto", "manual"], default="off")
+    preprocess_profile = serializers.CharField(required=False, allow_blank=True, default="")
+    preprocess_algorithms = serializers.ListField(child=serializers.CharField(), required=False, default=list)
+    preprocess_algorithm_params = serializers.DictField(required=False, default=dict)
+    preprocess_enable_gamma = serializers.BooleanField(required=False, default=False)
+    scene_hint = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_image_id(self, value):  # noqa: ANN001
+        if not ImageAsset.objects.filter(pk=value).exists():
+            raise serializers.ValidationError("Image asset does not exist.")
+        return value
+
+
 class DetectionObjectSerializer(serializers.ModelSerializer):
     bbox = serializers.SerializerMethodField()
 

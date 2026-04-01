@@ -7,8 +7,8 @@ from apps.media.models import ImageAsset
 from common.api.response import success_response
 
 from .models import DetectionTask, InferenceRecord
-from .serializers import DetectionTaskCreateSerializer, DetectionTaskDetailSerializer, DetectionTaskListSerializer
-from .services import DetectionRequest, DetectionTaskService
+from .serializers import DetectionTaskCreateSerializer, DetectionTaskDetailSerializer, DetectionTaskListSerializer, PreprocessPreviewSerializer
+from .services import DetectionRequest, DetectionTaskService, PreprocessPreviewRequest, PreprocessPreviewService
 
 
 def build_detection_queryset():
@@ -79,3 +79,35 @@ class DetectionTaskRetryView(APIView):
         task = get_object_or_404(build_detection_queryset(), task_no=task_no)
         retried = DetectionTaskService().retry(task)
         return success_response(DetectionTaskDetailSerializer(retried).data, status=status.HTTP_200_OK)
+
+
+class PreprocessPreviewView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):  # noqa: ANN001
+        serializer = PreprocessPreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        image = ImageAsset.objects.get(pk=payload["image_id"])
+        result = PreprocessPreviewService().run(
+            PreprocessPreviewRequest(
+                image=image,
+                preprocess_mode=payload["preprocess_mode"],
+                preprocess_profile=payload.get("preprocess_profile", ""),
+                preprocess_algorithms=payload.get("preprocess_algorithms", []),
+                preprocess_algorithm_params=payload.get("preprocess_algorithm_params", {}),
+                preprocess_enable_gamma=payload.get("preprocess_enable_gamma", False),
+                scene_hint=payload.get("scene_hint", ""),
+            )
+        )
+        return success_response({
+            "original_image_url": result.original_image_url,
+            "preview_image_url": result.preview_image_url,
+            "applied": result.applied,
+            "raw_scene": result.raw_scene,
+            "scene": result.scene,
+            "scene_source": result.scene_source,
+            "scene_debug": result.scene_debug,
+            "algorithms": result.algorithms,
+        })

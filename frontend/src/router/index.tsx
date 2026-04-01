@@ -8,6 +8,7 @@ import { DetectionPage } from "@/pages/detection-page";
 import { LoginPage } from "@/pages/login-page";
 import { SystemPage } from "@/pages/system-page";
 import { TrainingPage } from "@/pages/training-page";
+import { PreprocessDetectionPage } from "@/pages/preprocess-detection-page";
 import { useAuthStore } from "@/stores/auth-store";
 
 function AuthLayout() {
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
           { path: "detection/:taskNo", element: <DetectionDetailPage /> },
           { path: "system", element: <SystemPage /> },
           { path: "training", element: <TrainingPage /> },
+          { path: "preprocess-detection", element: <PreprocessDetectionPage /> },
           { path: "audit", element: <AuditPage /> },
         ],
       },
