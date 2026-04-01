@@ -12,6 +12,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -145,6 +146,53 @@ class TrainingJobService:
         logger.info("訓練任務 %s 已啟動，PID=%s", job.job_no, proc.pid)
         return job
 
+    def refresh_job(self, job: TrainingJob) -> TrainingJob:
+        job = self.refresh_progress(job)
+        job = self.refresh_baseline(job)
+        return job
+
+    def refresh_jobs(self, jobs: list[TrainingJob]) -> list[TrainingJob]:
+        return [self.refresh_job(job) for job in jobs]
+
+    def retry_job(self, job: TrainingJob) -> TrainingJob:
+        if job.status in (TrainingJob.Status.PENDING, TrainingJob.Status.RUNNING):
+            raise ValueError("執行中的任務不可重試。")
+        if not job.dataset or job.dataset.status != TrainingDataset.Status.READY:
+            raise ValueError("原任務資料集不存在或尚未就緒，無法重試。")
+        retried_job = self.create_job(
+            dataset=job.dataset,
+            model_file=job.model_file,
+            epochs=job.epochs,
+            batch=job.batch,
+            imgsz=job.imgsz,
+            device=job.device,
+            workers=job.workers,
+            patience=job.patience,
+            preprocess_mode=job.preprocess_mode,
+            preprocess_profile=job.preprocess_profile,
+            preprocess_algorithms=job.preprocess_algorithms,
+            preprocess_algorithm_params=job.preprocess_algorithm_params,
+            preprocess_enable_gamma=job.preprocess_enable_gamma,
+        )
+        return self.start_job(retried_job)
+
+    def get_visualization_payload(self, job: TrainingJob) -> dict[str, Any]:
+        job = self.refresh_job(job)
+        run_dir = Path(job.run_dir)
+        epochs, baseline, generated_at, source = self._read_epoch_metrics(run_dir)
+        summary_rows = self._read_summary_csv(run_dir / "training_summary.csv")
+        warnings = self._build_warnings(job, epochs, baseline)
+        return {
+            "generated_at": generated_at or timezone.now().isoformat(),
+            "source": source,
+            "artifacts": self._build_artifacts_payload(run_dir),
+            "baseline": baseline,
+            "epochs": epochs,
+            "summary": self._build_training_summary(job, epochs, baseline, summary_rows, warnings),
+            "summary_rows": summary_rows,
+            "report_excerpt": self._read_text_excerpt(run_dir / "epoch_report.md", max_lines=60),
+        }
+
     def refresh_progress(self, job: TrainingJob) -> TrainingJob:
         """讀取 results.csv 更新 epoch/mAP，並偵測進程是否已結束。"""
         if job.status not in (TrainingJob.Status.RUNNING, TrainingJob.Status.PENDING):
@@ -163,7 +211,7 @@ class TrainingJobService:
                     map50_val = self._parse_float(row.get("metrics/mAP50(B)", ""))
                     map95_val = self._parse_float(row.get("metrics/mAP50-95(B)", ""))
                     if epoch_val is not None:
-                        job.current_epoch = int(epoch_val)
+                        job.current_epoch = max(0, min(job.total_epochs or int(epoch_val), int(epoch_val)))
                         update_fields.append("current_epoch")
                     if map50_val is not None:
                         job.best_map50 = map50_val
@@ -269,8 +317,9 @@ class TrainingJobService:
                 logger.warning("無法終止進程 %s：%s", job.pid, exc)
 
         job.status = TrainingJob.Status.CANCELED
+        job.pid = None
         job.finished_at = timezone.now()
-        job.save(update_fields=["status", "finished_at", "updated_at"])
+        job.save(update_fields=["status", "pid", "finished_at", "updated_at"])
         return job
 
     def deploy_job(self, job: TrainingJob, model_alias: str | None = None) -> dict:
@@ -310,6 +359,253 @@ class TrainingJobService:
         content = replace_or_append("INFERENCE_MODEL_MODE", "yolov13", content)
         content = replace_or_append("INFERENCE_YOLOV13_MODEL_FILE", model_file, content)
         _ENV_FILE.write_text(content, encoding="utf-8")
+
+    def _read_epoch_metrics(self, run_dir: Path) -> tuple[list[dict[str, Any]], dict[str, Any] | None, str | None, str]:
+        results_csv = run_dir / "results.csv"
+        metrics_raw_path = run_dir / "metrics_raw.json"
+        baseline_path = run_dir / "baseline_metrics.json"
+
+        baseline_payload = self._read_json_file(baseline_path)
+        csv_epochs = self._read_results_csv(results_csv)
+        csv_epoch_map = {item["epoch"]: item for item in csv_epochs if item.get("epoch") is not None}
+
+        if metrics_raw_path.exists():
+            payload = self._read_json_file(metrics_raw_path) or {}
+            raw_epochs = payload.get("epochs", []) if isinstance(payload, dict) else []
+            epochs = [self._normalize_epoch_metric(item, csv_epoch_map) for item in raw_epochs if isinstance(item, dict)]
+            normalized_baseline = payload.get("baseline") if isinstance(payload, dict) else None
+            baseline = normalized_baseline if isinstance(normalized_baseline, dict) else baseline_payload
+            self._apply_delta_fields(epochs, baseline)
+            return epochs, baseline, payload.get("generated_at"), "metrics_raw.json"
+
+        self._apply_delta_fields(csv_epochs, baseline_payload)
+        return csv_epochs, baseline_payload, None, "results.csv"
+
+    def _read_results_csv(self, csv_path: Path) -> list[dict[str, Any]]:
+        if not csv_path.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        with csv_path.open(encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if not str(row.get("epoch", "")).strip():
+                    continue
+                rows.append(
+                    {
+                        "epoch": int(self._parse_float(row.get("epoch", "")) or 0),
+                        "time_sec": self._parse_float(row.get("time", "")),
+                        "map50": self._parse_float(row.get("metrics/mAP50(B)", "")),
+                        "map50_95": self._parse_float(row.get("metrics/mAP50-95(B)", "")),
+                        "precision": self._parse_float(row.get("metrics/precision(B)", "")),
+                        "recall": self._parse_float(row.get("metrics/recall(B)", "")),
+                        "train_box_loss": self._parse_float(row.get("train/box_loss", "")),
+                        "train_cls_loss": self._parse_float(row.get("train/cls_loss", "")),
+                        "train_dfl_loss": self._parse_float(row.get("train/dfl_loss", "")),
+                        "val_box_loss": self._parse_float(row.get("val/box_loss", "")),
+                        "val_cls_loss": self._parse_float(row.get("val/cls_loss", "")),
+                        "val_dfl_loss": self._parse_float(row.get("val/dfl_loss", "")),
+                        "lr": self._parse_float(row.get("lr/pg0", "")),
+                    }
+                )
+        return rows
+
+    def _normalize_epoch_metric(self, item: dict[str, Any], csv_epoch_map: dict[int, dict[str, Any]]) -> dict[str, Any]:
+        epoch = int(self._parse_float(item.get("epoch", 0)) or 0)
+        csv_row = csv_epoch_map.get(epoch, {})
+        normalized = {
+            "epoch": epoch,
+            "time_sec": item.get("time_sec", csv_row.get("time_sec")),
+            "map50": item.get("map50"),
+            "map50_95": item.get("map50_95"),
+            "precision": item.get("precision"),
+            "recall": item.get("recall"),
+            "train_box_loss": item.get("train_box_loss"),
+            "train_cls_loss": item.get("train_cls_loss"),
+            "train_dfl_loss": item.get("train_dfl_loss"),
+            "val_box_loss": item.get("val_box_loss"),
+            "val_cls_loss": item.get("val_cls_loss"),
+            "val_dfl_loss": item.get("val_dfl_loss"),
+            "lr": item.get("lr"),
+            "delta_map50": item.get("delta_map50"),
+            "delta_map50_95": item.get("delta_map50_95"),
+            "delta_precision": item.get("delta_precision"),
+            "delta_recall": item.get("delta_recall"),
+        }
+        for key in (
+            "time_sec", "map50", "map50_95", "precision", "recall",
+            "train_box_loss", "train_cls_loss", "train_dfl_loss",
+            "val_box_loss", "val_cls_loss", "val_dfl_loss", "lr",
+            "delta_map50", "delta_map50_95", "delta_precision", "delta_recall",
+        ):
+            normalized[key] = self._parse_float(normalized.get(key))
+        return normalized
+
+    def _apply_delta_fields(self, epochs: list[dict[str, Any]], baseline: dict[str, Any] | None) -> None:
+        if not baseline:
+            return
+        pairs = (
+            ("map50", "delta_map50", baseline.get("map50")),
+            ("map50_95", "delta_map50_95", baseline.get("map50_95")),
+            ("precision", "delta_precision", baseline.get("precision")),
+            ("recall", "delta_recall", baseline.get("recall")),
+        )
+        for epoch in epochs:
+            for source_key, delta_key, baseline_value in pairs:
+                source_value = self._parse_float(epoch.get(source_key))
+                base_value = self._parse_float(baseline_value)
+                if source_value is None or base_value is None:
+                    epoch.setdefault(delta_key, None)
+                else:
+                    epoch[delta_key] = round(source_value - base_value, 6)
+
+    def _read_summary_csv(self, csv_path: Path) -> dict[str, Any]:
+        if not csv_path.exists():
+            return {}
+        summary: dict[str, Any] = {}
+        with csv_path.open(encoding="utf-8") as f:
+            for row in csv.reader(f):
+                if len(row) < 2:
+                    continue
+                summary[row[0]] = self._maybe_number(row[1])
+        return summary
+
+    def _build_training_summary(
+        self,
+        job: TrainingJob,
+        epochs: list[dict[str, Any]],
+        baseline: dict[str, Any] | None,
+        summary_rows: dict[str, Any],
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        first_epoch = epochs[0] if epochs else None
+        latest_epoch = epochs[-1] if epochs else None
+        best_epoch = max(
+            epochs,
+            key=lambda item: item.get("map50") if item.get("map50") is not None else float("-inf"),
+            default=None,
+        )
+        trend_conclusion: list[str] = []
+        if first_epoch and latest_epoch:
+            first_map50 = self._parse_float(first_epoch.get("map50"))
+            latest_map50 = self._parse_float(latest_epoch.get("map50"))
+            if first_map50 is not None and latest_map50 is not None:
+                diff = latest_map50 - first_map50
+                direction = "上升" if diff >= 0 else "下降"
+                trend_conclusion.append(f"mAP50 相較首輪整體{direction} {diff:+.4f}。")
+            first_loss = self._parse_float(first_epoch.get("val_box_loss"))
+            latest_loss = self._parse_float(latest_epoch.get("val_box_loss"))
+            if first_loss is not None and latest_loss is not None:
+                diff = latest_loss - first_loss
+                direction = "下降" if diff <= 0 else "上升"
+                trend_conclusion.append(f"Val box loss 相較首輪整體{direction} {diff:+.4f}。")
+        if baseline and best_epoch:
+            baseline_map50 = self._parse_float(baseline.get("map50"))
+            best_map50 = self._parse_float(best_epoch.get("map50"))
+            if baseline_map50 is not None and best_map50 is not None:
+                trend_conclusion.append(f"最佳 mAP50 相對基線變化 {best_map50 - baseline_map50:+.4f}。")
+        if latest_epoch and self._parse_float(latest_epoch.get("lr")) is not None:
+            trend_conclusion.append(f"最新學習率為 {float(latest_epoch['lr']):.6f}。")
+        return {
+            "status": job.status,
+            "current_epoch": job.current_epoch,
+            "total_epochs": job.total_epochs,
+            "completed_epochs": len(epochs),
+            "best_epoch": best_epoch.get("epoch") if best_epoch else None,
+            "best_metrics": best_epoch,
+            "latest_metrics": latest_epoch,
+            "runtime_seconds": self._resolve_runtime_seconds(job, latest_epoch),
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "final_metrics": {
+                "map50": self._parse_float(summary_rows.get("mAP50", job.best_map50)),
+                "map50_95": self._parse_float(summary_rows.get("mAP50-95", job.best_map50_95)),
+                "precision": self._parse_float(summary_rows.get("Precision", latest_epoch.get("precision") if latest_epoch else None)),
+                "recall": self._parse_float(summary_rows.get("Recall", latest_epoch.get("recall") if latest_epoch else None)),
+            },
+            "trend_conclusion": trend_conclusion,
+            "warnings": warnings,
+            "summary_rows": summary_rows,
+        }
+
+    def _build_artifacts_payload(self, run_dir: Path) -> dict[str, bool]:
+        return {
+            "results_csv": (run_dir / "results.csv").exists(),
+            "metrics_raw_json": (run_dir / "metrics_raw.json").exists(),
+            "epoch_report_md": (run_dir / "epoch_report.md").exists(),
+            "training_summary_csv": (run_dir / "training_summary.csv").exists(),
+            "training_curve_png": (run_dir / "training_curve.png").exists(),
+            "chart_metrics_png": (run_dir / "chart_metrics.png").exists(),
+            "chart_losses_png": (run_dir / "chart_losses.png").exists(),
+            "chart_improvement_png": (run_dir / "chart_improvement.png").exists(),
+        }
+
+    def _build_warnings(
+        self,
+        job: TrainingJob,
+        epochs: list[dict[str, Any]],
+        baseline: dict[str, Any] | None,
+    ) -> list[str]:
+        warnings: list[str] = []
+        if job.status == TrainingJob.Status.CANCELED:
+            warnings.append("訓練已被中斷，指標與摘要僅反映中斷前已完成的 epoch。")
+        if job.status == TrainingJob.Status.FAILED:
+            warnings.append("訓練失敗，請優先檢查錯誤訊息與日誌內容。")
+        if not epochs:
+            warnings.append("目前尚無可視化 epoch 資料，可能尚未產生 results.csv 或訓練尚未完成第一輪。")
+        if baseline and epochs:
+            best_epoch = max(
+                epochs,
+                key=lambda item: item.get("map50") if item.get("map50") is not None else float("-inf"),
+                default=None,
+            )
+            if best_epoch:
+                baseline_map50 = self._parse_float(baseline.get("map50"))
+                best_map50 = self._parse_float(best_epoch.get("map50"))
+                if baseline_map50 is not None and best_map50 is not None and best_map50 < baseline_map50:
+                    warnings.append("最佳 mAP50 尚未超過原始基線模型表現。")
+        if job.error_message:
+            warnings.append(job.error_message[:200])
+        return warnings
+
+    def _resolve_runtime_seconds(self, job: TrainingJob, latest_epoch: dict[str, Any] | None) -> float | None:
+        if latest_epoch and self._parse_float(latest_epoch.get("time_sec")) is not None:
+            return float(latest_epoch["time_sec"])
+        if job.started_at and job.finished_at:
+            return round((job.finished_at - job.started_at).total_seconds(), 3)
+        if job.started_at:
+            return round((timezone.now() - job.started_at).total_seconds(), 3)
+        return None
+
+    @staticmethod
+    def _read_json_file(path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("讀取 JSON 失敗：%s (%s)", path, exc)
+            return None
+
+    @staticmethod
+    def _read_text_excerpt(path: Path, max_lines: int = 40) -> str:
+        try:
+            if not path.exists():
+                return ""
+            return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[:max_lines])
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @staticmethod
+    def _maybe_number(value: Any) -> Any:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if text == "":
+            return ""
+        try:
+            number = float(text)
+            return int(number) if number.is_integer() else number
+        except ValueError:
+            return text
 
     def _read_last_csv_row(self, csv_path: Path) -> dict | None:
         with csv_path.open(encoding="utf-8") as f:

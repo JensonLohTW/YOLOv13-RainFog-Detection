@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import TrainingDataset, TrainingJob
+from pathlib import Path
 
 
 class TrainingDatasetSerializer(serializers.ModelSerializer):
@@ -59,15 +60,21 @@ class TrainingJobCreateSerializer(serializers.Serializer):
 
 
 class TrainingJobSerializer(serializers.ModelSerializer):
+    dataset_id = serializers.SerializerMethodField()
     dataset_name = serializers.SerializerMethodField()
     progress_pct = serializers.SerializerMethodField()
     improvement_map50 = serializers.SerializerMethodField()
+    can_cancel = serializers.SerializerMethodField()
+    can_retry = serializers.SerializerMethodField()
+    can_deploy = serializers.SerializerMethodField()
+    has_metrics = serializers.SerializerMethodField()
+    has_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = TrainingJob
         fields = [
-            "id", "job_no", "dataset_name", "model_file",
-            "epochs", "batch", "imgsz", "device",
+            "id", "job_no", "dataset_id", "dataset_name", "model_file",
+            "epochs", "batch", "imgsz", "device", "workers", "patience",
             "preprocess_mode", "preprocess_profile", "preprocess_algorithms",
             "preprocess_algorithm_params", "preprocess_enable_gamma",
             "run_name", "run_dir", "log_path", "best_pt_path",
@@ -76,9 +83,13 @@ class TrainingJobSerializer(serializers.ModelSerializer):
             "best_map50", "best_map50_95", "error_message",
             "baseline_map50", "baseline_map50_95",
             "baseline_precision", "baseline_recall", "baseline_status",
-            "progress_pct", "improvement_map50",
+            "progress_pct", "improvement_map50", "can_cancel", "can_retry",
+            "can_deploy", "has_metrics", "has_summary",
             "started_at", "finished_at", "created_at",
         ]
+
+    def get_dataset_id(self, obj):  # noqa: ANN001
+        return obj.dataset_id
 
     def get_dataset_name(self, obj):  # noqa: ANN001
         return obj.dataset.name if obj.dataset else ""
@@ -92,6 +103,26 @@ class TrainingJobSerializer(serializers.ModelSerializer):
         if obj.best_map50 is None or obj.baseline_map50 is None:
             return None
         return round(obj.best_map50 - obj.baseline_map50, 6)
+
+    def get_can_cancel(self, obj):  # noqa: ANN001
+        return obj.status in (TrainingJob.Status.PENDING, TrainingJob.Status.RUNNING)
+
+    def get_can_retry(self, obj):  # noqa: ANN001
+        return obj.status in (
+            TrainingJob.Status.COMPLETED,
+            TrainingJob.Status.FAILED,
+            TrainingJob.Status.CANCELED,
+        )
+
+    def get_can_deploy(self, obj):  # noqa: ANN001
+        return obj.status == TrainingJob.Status.COMPLETED and bool(obj.best_pt_path)
+
+    def get_has_metrics(self, obj):  # noqa: ANN001
+        run_dir = Path(obj.run_dir)
+        return (run_dir / "metrics_raw.json").exists() or (run_dir / "results.csv").exists()
+
+    def get_has_summary(self, obj):  # noqa: ANN001
+        return (Path(obj.run_dir) / "training_summary.csv").exists()
 
 
 class JobDeploySerializer(serializers.Serializer):

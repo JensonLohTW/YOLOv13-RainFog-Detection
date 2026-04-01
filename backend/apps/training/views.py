@@ -81,10 +81,12 @@ class TrainingJobListCreateView(APIView):
         status_filter = request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
+        svc = TrainingJobService()
+        items = svc.refresh_jobs(list(qs))
         return success_response(
             {
-                "items": TrainingJobSerializer(qs, many=True).data,
-                "total": qs.count(),
+                "items": TrainingJobSerializer(items, many=True).data,
+                "total": len(items),
             }
         )
 
@@ -191,3 +193,36 @@ class TrainingJobLogView(APIView):
             return success_response({}, message="任務不存在", status=status.HTTP_404_NOT_FOUND)
         tail = TrainingJobService._read_log_tail(job.log_path, lines=100)
         return success_response({"log": tail, "log_path": job.log_path})
+
+
+class TrainingJobRetryView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request, job_id):  # noqa: ANN001
+        try:
+            job = TrainingJob.objects.select_related("dataset").get(pk=job_id)
+        except TrainingJob.DoesNotExist:
+            return success_response({}, message="任務不存在", status=status.HTTP_404_NOT_FOUND)
+        try:
+            retried_job = TrainingJobService().retry_job(job)
+        except ValueError as exc:
+            return success_response({}, message=str(exc), status=status.HTTP_400_BAD_REQUEST)
+        return success_response(
+            TrainingJobSerializer(retried_job).data,
+            message="已建立重試任務並重新啟動訓練",
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class TrainingJobVisualizationView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request, job_id):  # noqa: ANN001
+        try:
+            job = TrainingJob.objects.select_related("dataset").get(pk=job_id)
+        except TrainingJob.DoesNotExist:
+            return success_response({}, message="任務不存在", status=status.HTTP_404_NOT_FOUND)
+        payload = TrainingJobService().get_visualization_payload(job)
+        return success_response(payload)

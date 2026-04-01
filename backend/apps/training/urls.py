@@ -10,6 +10,8 @@ from .views import (
     TrainingJobDetailView,
     TrainingJobListCreateView,
     TrainingJobLogView,
+    TrainingJobRetryView,
+    TrainingJobVisualizationView,
 )
 
 urlpatterns = [
@@ -19,7 +21,9 @@ urlpatterns = [
     path("jobs", TrainingJobListCreateView.as_view(), name="training-job-list-create"),
     path("jobs/<int:job_id>", TrainingJobDetailView.as_view(), name="training-job-detail"),
     path("jobs/<int:job_id>/cancel", TrainingJobCancelView.as_view(), name="training-job-cancel"),
+    path("jobs/<int:job_id>/retry", TrainingJobRetryView.as_view(), name="training-job-retry"),
     path("jobs/<int:job_id>/deploy", TrainingJobDeployView.as_view(), name="training-job-deploy"),
     path("jobs/<int:job_id>/validate-baseline", TrainingJobBaselineView.as_view(), name="training-job-baseline"),
     path("jobs/<int:job_id>/log", TrainingJobLogView.as_view(), name="training-job-log"),
+    path("jobs/<int:job_id>/visualization", TrainingJobVisualizationView.as_view(), name="training-job-visualization"),
 ]
