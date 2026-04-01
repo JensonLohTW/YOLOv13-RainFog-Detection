@@ -1,4 +1,4 @@
 . (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "common.ps1")
 
-Write-Step "停止 Django 後端"
+Write-Step "Stop Django backend"
 Stop-ServiceByPidFile "backend"

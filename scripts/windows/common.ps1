@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-# 統一計算專案根目錄，方便所有 PowerShell 腳本共用。
+# Resolve repo root for all scripts.
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $ScriptDir "../..")
 $RunDir = Join-Path $RepoRoot ".run"
@@ -18,7 +18,7 @@ function Write-Step {
 function Ensure-Command {
   param([string]$Name)
   if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-    throw "缺少命令：$Name"
+    throw "Missing required command: $Name"
   }
 }
 
@@ -35,16 +35,16 @@ function Start-ServiceProcess {
   if (Test-Path $PidFile) {
     $ExistingPid = Get-Content $PidFile
     if (Get-Process -Id $ExistingPid -ErrorAction SilentlyContinue) {
-      Write-Host "[INFO] $Name 已在運行，PID=$ExistingPid"
+      Write-Host "[INFO] $Name already running, PID=$ExistingPid"
       return
     }
     Remove-Item $PidFile -Force
   }
 
-  # 使用 PowerShell 後台進程啟動服務，並將 PID 記錄到 .run。
+  # Launch service in a background PowerShell process and record its PID.
   $Process = Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Set-Location '$Workdir'; $Command *> '$LogFile'" -PassThru
   Set-Content -Path $PidFile -Value $Process.Id
-  Write-Host "[INFO] 已啟動 $Name，PID=$($Process.Id)，日誌=$LogFile"
+  Write-Host "[INFO] Started $Name, PID=$($Process.Id), log=$LogFile"
 }
 
 function Stop-ServiceByPidFile {
@@ -52,16 +52,16 @@ function Stop-ServiceByPidFile {
 
   $PidFile = Join-Path $RunDir "$Name.pid"
   if (-not (Test-Path $PidFile)) {
-    Write-Host "[INFO] $Name 沒有 PID 文件，跳過停止。"
+    Write-Host "[INFO] $Name has no PID file, skipping."
     return
   }
 
   $Pid = Get-Content $PidFile
   if (Get-Process -Id $Pid -ErrorAction SilentlyContinue) {
     Stop-Process -Id $Pid -Force
-    Write-Host "[INFO] 已停止 $Name，PID=$Pid"
+    Write-Host "[INFO] Stopped $Name, PID=$Pid"
   } else {
-    Write-Host "[WARN] $Name 的 PID=$Pid 不存在，將清理 PID 文件。"
+    Write-Host "[WARN] $Name PID=$Pid not found, cleaning up PID file."
   }
 
   Remove-Item $PidFile -Force
