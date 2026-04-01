@@ -1,42 +1,52 @@
 @echo off
 chcp 65001 > nul
-:: 本地開發啟動腳本（不使用 Docker 跑應用服務）
-:: 流程：啟動 MySQL+Redis 基礎設施 → Django → FastAPI → React
+:: 本地開發啟動腳本（完全不使用 Docker，MySQL 和 Redis 需自行安裝在本機）
+:: 流程：檢查本機 MySQL/Redis → 啟動 Django → FastAPI → React
 
 cd /d "%~dp0\..\.."
 
 echo =========================================================
 echo  YOLOv13 RainFog Detection - 本地開發環境啟動
+echo  （完全本機模式，不使用 Docker）
 echo =========================================================
 
-:: 檢查 Docker（MySQL / Redis 基礎設施仍需 Docker）
-docker info >nul 2>&1
+:: 確認 backend\.env 存在
+if not exist "backend\.env" (
+    echo ⚠️  尚未設定 backend\.env，正在以範本自動生成...
+    copy backend\.env.example backend\.env >nul
+    echo ✅ 已生成 backend\.env，請確認 MYSQL_HOST / MYSQL_PASSWORD 等設定正確。
+    echo.
+)
+
+:: 檢查本機 MySQL（3306 port）
+echo [1/3] 檢查本機 MySQL (127.0.0.1:3306)...
+powershell -NoProfile -Command "$c=New-Object Net.Sockets.TcpClient; try { $c.Connect('127.0.0.1',3306); Write-Host '[OK] MySQL 已在線'; $c.Close() } catch { Write-Host '[WARN] MySQL 未偵測到！請先啟動 MySQL 服務。'; exit 1 }"
 if %errorlevel% neq 0 (
-    echo ❌ Docker 未啟動！MySQL 和 Redis 需要 Docker Desktop。
-    echo    請先開啟 Docker Desktop 後再執行此腳本。
+    echo.
+    echo ❌ 請先啟動本機 MySQL，再執行此腳本。
+    echo    下載安裝：https://dev.mysql.com/downloads/mysql/
+    echo    啟動方式：在「服務」中啟動 MySQL，或執行：
+    echo       net start MySQL
     pause
     exit /b 1
 )
 
-:: 啟動 MySQL + Redis
-echo.
-echo [1/4] 啟動 MySQL + Redis 基礎設施...
-docker compose -f docker-compose.dev.yml up -d
+:: 檢查本機 Redis（6379 port）
+echo [2/3] 檢查本機 Redis (127.0.0.1:6379)...
+powershell -NoProfile -Command "$c=New-Object Net.Sockets.TcpClient; try { $c.Connect('127.0.0.1',6379); Write-Host '[OK] Redis 已在線'; $c.Close() } catch { Write-Host '[WARN] Redis 未偵測到！請先啟動 Redis 服務。'; exit 1 }"
 if %errorlevel% neq 0 (
-    echo ❌ 基礎設施啟動失敗。
+    echo.
+    echo ❌ 請先啟動本機 Redis，再執行此腳本。
+    echo    下載安裝：https://github.com/tporadowski/redis/releases
+    echo    啟動方式：在「服務」中啟動 Redis，或執行：
+    echo       redis-server
     pause
     exit /b 1
 )
-echo ✅ MySQL (3306) + Redis (6379) 已啟動
 
-:: 等待 MySQL 就緒
+:: 啟動 Django + FastAPI + React
 echo.
-echo [2/4] 等待 MySQL 就緒（5 秒）...
-timeout /t 5 /nobreak > nul
-
-:: 啟動 Django 後端
-echo.
-echo [3/4] 啟動 Django 後端 + FastAPI 推理服務 + React 前端...
+echo [3/3] 啟動 Django + FastAPI + React...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-all.ps1"
 
 echo.
