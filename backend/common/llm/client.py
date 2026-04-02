@@ -44,6 +44,17 @@ class MockLLMProvider(BaseLLMProvider):
         settings: LLMSettings,
         metadata: dict[str, Any] | None = None,
     ) -> LLMResponse:
+        agent_type = str((metadata or {}).get("agent_type") or "").strip()
+        if agent_type == "analytics_qa":
+            return self._generate_analytics_response(settings=settings, metadata=metadata)
+        return self._generate_detection_response(settings=settings, metadata=metadata)
+
+    def _generate_detection_response(
+        self,
+        *,
+        settings: LLMSettings,
+        metadata: dict[str, Any] | None = None,
+    ) -> LLMResponse:
         grounding = dict((metadata or {}).get("grounding") or {})
         class_summary = grounding.get("class_summary") or []
         warnings = grounding.get("warnings") or []
@@ -99,6 +110,67 @@ class MockLLMProvider(BaseLLMProvider):
                 "",
                 "### 可能誤判原因",
                 reason,
+                "",
+                "### 建議下一步",
+                next_step,
+                "",
+                f"補充問題：{question or '未提供'}",
+            ]
+        )
+        return LLMResponse(
+            text=answer.strip(),
+            provider=settings.provider,
+            model=settings.model or "mock-llm",
+            finish_reason="stop",
+            raw={"mock": True},
+        )
+
+    def _generate_analytics_response(
+        self,
+        *,
+        settings: LLMSettings,
+        metadata: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        grounding = dict((metadata or {}).get("grounding") or {})
+        question = str((metadata or {}).get("question") or "").strip()
+        window = grounding.get("window") or {}
+        status_summary = grounding.get("status_summary") or {}
+        top_classes = grounding.get("top_classes") or []
+        daily_trend = grounding.get("daily_trend") or []
+
+        if top_classes:
+            top_line = "、".join(
+                f"{item['class_name']}（{item['count']}）" for item in top_classes[:3] if item.get("class_name")
+            )
+            conclusion = f"在 {window.get('date_from')} 到 {window.get('date_to')} 期間，出現最多的類別為 {top_line}。"
+        else:
+            conclusion = f"在 {window.get('date_from')} 到 {window.get('date_to')} 期間，根據目前統計資料沒有可用的類別分布。"
+
+        evidence_parts = [
+            f"任務總數 {status_summary.get('task_total', 0)}",
+            f"成功 {status_summary.get('success_total', 0)}",
+            f"失敗 {status_summary.get('failed_total', 0)}",
+            f"處理中 {status_summary.get('processing_total', 0)}",
+        ]
+        if daily_trend:
+            last_point = daily_trend[-1]
+            evidence_parts.append(
+                f"最近一天 {last_point['day']} 任務 {last_point['task_total']}，成功 {last_point['success_total']}"
+            )
+
+        limitations = "目前統計問答僅基於白名單聚合結果，未開放任意 SQL 或跨表自由查詢。"
+        next_step = "若要更精確分析，建議指定日期區間、類別名稱，或將趨勢問題拆成單一指標。"
+
+        answer = "\n".join(
+            [
+                "### 結論",
+                conclusion,
+                "",
+                "### 依據",
+                "；".join(evidence_parts) + "。",
+                "",
+                "### 風險與限制",
+                limitations,
                 "",
                 "### 建議下一步",
                 next_step,

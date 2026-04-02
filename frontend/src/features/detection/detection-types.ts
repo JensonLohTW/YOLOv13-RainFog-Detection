@@ -136,6 +136,7 @@ export type DetectionExplanationGrounding = {
 };
 
 export type DetectionExplanationResponse = {
+  agent_type?: string;
   task_no: string;
   image_id: number;
   question: string;
@@ -147,6 +148,14 @@ export type DetectionExplanationResponse = {
     config_source: string;
     api_key_source: string;
   };
+  trace?: Array<{
+    tool_name: string;
+    latency_ms: number;
+    status: string;
+    version: string;
+    error_code: string;
+    payload: Record<string, unknown>;
+  }>;
 };
 
 export const PREPROCESS_ALGORITHMS = [

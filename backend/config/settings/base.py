@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "rest_framework.authtoken",
+    "apps.agent",
     "apps.accounts",
     "apps.media",
     "apps.detection",

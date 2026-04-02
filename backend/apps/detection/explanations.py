@@ -7,7 +7,13 @@ from typing import Any
 
 from django.db.models import Prefetch
 
-from common.llm import LLMClient, LLMConfigurationError, LLMProviderError, LLMRequestError, LLMTimeoutError
+from common.llm import (
+    LLMClient,
+    LLMConfigurationError,
+    LLMProviderError,
+    LLMRequestError,
+    LLMTimeoutError,
+)
 
 from apps.system.services import SystemConfigService
 
@@ -50,49 +56,18 @@ class DetectionExplanationRequest:
     image_id: int | None = None
 
 
-class DetectionExplanationService:
-    def __init__(self) -> None:
-        self.llm_client = LLMClient()
-        self.system_config_service = SystemConfigService()
-
-    def answer(self, request: DetectionExplanationRequest) -> dict[str, Any]:
-        task = self._resolve_task(task_no=request.task_no, image_id=request.image_id)
+class DetectionGroundingService:
+    def get_grounding(
+        self,
+        *,
+        task_no: str = "",
+        image_id: int | None = None,
+    ) -> tuple[DetectionTask, dict[str, Any]]:
+        task = self._resolve_task(task_no=task_no, image_id=image_id)
         record = task.inference_records.first()
         if record is None:
             raise DetectionExplanationError("找不到可用的推理結果，無法生成說明。", status=404, code=404)
-
-        grounding = self._build_grounding(task, record)
-        llm_settings = self.system_config_service.get_llm_settings()
-        system_prompt = DETECTION_EXPLANATION_SYSTEM_PROMPT
-        user_prompt = self._build_user_prompt(question=request.question, grounding=grounding)
-
-        try:
-            response = self.llm_client.generate(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                settings=llm_settings,
-                metadata={"question": request.question, "grounding": grounding},
-            )
-        except LLMConfigurationError as exc:
-            raise DetectionExplanationConfigError(str(exc)) from exc
-        except LLMTimeoutError as exc:
-            raise DetectionExplanationError(str(exc), status=504, code=504) from exc
-        except (LLMRequestError, LLMProviderError) as exc:
-            raise DetectionExplanationError(str(exc), status=502, code=502) from exc
-
-        return {
-            "task_no": task.task_no,
-            "image_id": task.image_id,
-            "question": request.question,
-            "answer": response.text,
-            "grounding": grounding,
-            "llm": {
-                "provider": response.provider,
-                "model": response.model,
-                "config_source": llm_settings.config_source,
-                "api_key_source": llm_settings.api_key_source,
-            },
-        }
+        return task, self._build_grounding(task, record)
 
     def _resolve_task(self, *, task_no: str, image_id: int | None) -> DetectionTask:
         queryset = DetectionTask.objects.select_related("image").prefetch_related(
@@ -260,3 +235,56 @@ class DetectionExplanationService:
         if confidence >= 0.5:
             return "medium"
         return "low"
+
+
+class DetectionExplanationService:
+    def __init__(self) -> None:
+        self.llm_client = LLMClient()
+        self.system_config_service = SystemConfigService()
+        self.grounding_service = DetectionGroundingService()
+
+    def answer(self, request: DetectionExplanationRequest) -> dict[str, Any]:
+        task, grounding = self.grounding_service.get_grounding(
+            task_no=request.task_no,
+            image_id=request.image_id,
+        )
+        llm_settings = self.system_config_service.get_llm_settings()
+        system_prompt = DETECTION_EXPLANATION_SYSTEM_PROMPT
+        user_prompt = (
+            "使用者問題：\n"
+            f"{request.question.strip()}\n\n"
+            "檢測結果上下文（JSON）：\n"
+            f"{json.dumps(grounding, ensure_ascii=False, indent=2)}"
+        )
+
+        try:
+            response = self.llm_client.generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                settings=llm_settings,
+                metadata={
+                    "agent_type": "detection_explanation",
+                    "question": request.question,
+                    "grounding": grounding,
+                },
+            )
+        except LLMConfigurationError as exc:
+            raise DetectionExplanationConfigError(str(exc)) from exc
+        except LLMTimeoutError as exc:
+            raise DetectionExplanationError(str(exc), status=504, code=504) from exc
+        except (LLMRequestError, LLMProviderError) as exc:
+            raise DetectionExplanationError(str(exc), status=502, code=502) from exc
+
+        return {
+            "task_no": task.task_no,
+            "image_id": task.image_id,
+            "question": request.question,
+            "answer": response.text,
+            "grounding": grounding,
+            "llm": {
+                "provider": response.provider,
+                "model": response.model,
+                "config_source": llm_settings.config_source,
+                "api_key_source": llm_settings.api_key_source,
+            },
+        }

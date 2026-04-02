@@ -1,14 +1,15 @@
 from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
+from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
 from rest_framework.views import APIView
 
+from apps.agent.contracts import AgentAskRequest
+from apps.agent.services import AgentOrchestratorService, AgentServiceError
 from apps.media.models import ImageAsset
 from common.api.response import error_response, success_response
 
-from .explanations import DetectionExplanationError, DetectionExplanationRequest, DetectionExplanationService
 from .models import DetectionTask, InferenceRecord
 from .serializers import (
     DetectionExplanationRequestSerializer,
@@ -132,14 +133,15 @@ class DetectionExplanationView(APIView):
         payload = serializer.validated_data
 
         try:
-            result = DetectionExplanationService().answer(
-                DetectionExplanationRequest(
+            result = AgentOrchestratorService().ask(
+                AgentAskRequest(
+                    agent_type="detection_explanation",
                     task_no=payload.get("task_no", ""),
                     image_id=payload.get("image_id"),
                     question=payload["question"],
                 )
             )
-        except DetectionExplanationError as exc:
+        except AgentServiceError as exc:
             return error_response(str(exc), code=exc.code, status=exc.status)
 
-        return success_response(result)
+        return success_response(result.to_dict())

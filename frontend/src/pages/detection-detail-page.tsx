@@ -174,6 +174,18 @@ export function DetectionDetailPage() {
                 <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
                   {explanation.answer}
                 </div>
+                {explanation.trace?.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {explanation.trace.map((item) => (
+                      <span
+                        key={`${item.tool_name}-${item.version}`}
+                        className="rounded-full bg-white px-3 py-1 text-[11px] text-slate-500"
+                      >
+                        {item.tool_name} / {item.latency_ms} ms
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="rounded-2xl border border-slate-100 p-4">
