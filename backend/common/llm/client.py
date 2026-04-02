@@ -277,7 +277,7 @@ class OpenAICompatibleLLMProvider(BaseLLMProvider):
         }
 
         try:
-            with httpx.Client(timeout=settings.timeout) as client:
+            with httpx.Client(timeout=settings.timeout, trust_env=False) as client:
                 response = client.post(
                     url,
                     headers={

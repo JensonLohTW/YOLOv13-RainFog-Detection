@@ -4,15 +4,16 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time as dt_time, timedelta
 from typing import Any
 
-from django.db.models import Avg, Count, Max, Min, Q
-from django.db.models.functions import TruncDate
+from django.db.models import Avg, Count, DateField, F, Max, Min, Q
+from django.db.models.expressions import RawSQL
+from django.db.models.functions import Cast, TruncDate
 from django.utils import timezone
 
 from apps.dashboard.services import DashboardService
-from apps.detection.explanations import DetectionGroundingService
+from apps.detection.explanations import DetectionExplanationError, DetectionGroundingService
 from apps.detection.models import DetectionObject, DetectionTask
 from apps.system.services import SystemConfigService
 from common.llm import LLMClient
@@ -22,7 +23,7 @@ from .contracts import ToolExecutionTrace
 from .prompts import ANALYTICS_AGENT_SYSTEM_PROMPT, DETECTION_AGENT_SYSTEM_PROMPT
 
 CLASS_NAME_PATTERNS = [
-    r"類別[是為:]?\s*([A-Za-z0-9_\-\u4e00-\u9fff]+)",
+    r"類別[是為:]\s*([A-Za-z0-9_\-\u4e00-\u9fff]+)",
     r"\b([A-Za-z0-9_\-]+)\s*類別",
     r"[\"'「](.+?)[\"'」]\s*類別",
 ]
@@ -49,7 +50,10 @@ class DetectionGroundingTool:
 
     def execute(self, *, task_no: str = "", image_id: int | None = None) -> ToolResult:
         started = time.perf_counter()
-        task, grounding = self.service.get_grounding(task_no=task_no, image_id=image_id)
+        try:
+            task, grounding = self.service.get_grounding(task_no=task_no, image_id=image_id)
+        except DetectionExplanationError as exc:
+            raise AgentToolError(str(exc), code="grounding_error", status=exc.status) from exc
         latency_ms = int((time.perf_counter() - started) * 1000)
         return ToolResult(
             payload={
@@ -252,15 +256,21 @@ class AnalyticsQueryTool:
         )
 
     def _build_task_queryset(self, query_spec: AnalyticsQuerySpec):
+        tz = timezone.get_current_timezone()
+        start_dt = timezone.make_aware(datetime.combine(query_spec.date_from, dt_time.min), tz)
+        end_dt = timezone.make_aware(datetime.combine(query_spec.date_to + timedelta(days=1), dt_time.min), tz)
         return DetectionTask.objects.filter(
-            created_at__date__gte=query_spec.date_from,
-            created_at__date__lte=query_spec.date_to,
+            created_at__gte=start_dt,
+            created_at__lt=end_dt,
         )
 
     def _build_object_queryset(self, query_spec: AnalyticsQuerySpec):
+        tz = timezone.get_current_timezone()
+        start_dt = timezone.make_aware(datetime.combine(query_spec.date_from, dt_time.min), tz)
+        end_dt = timezone.make_aware(datetime.combine(query_spec.date_to + timedelta(days=1), dt_time.min), tz)
         queryset = DetectionObject.objects.filter(
-            record__task__created_at__date__gte=query_spec.date_from,
-            record__task__created_at__date__lte=query_spec.date_to,
+            record__task__created_at__gte=start_dt,
+            record__task__created_at__lt=end_dt,
         )
         if query_spec.class_name:
             queryset = queryset.filter(class_name__iexact=query_spec.class_name)
@@ -323,7 +333,7 @@ class AnalyticsQueryTool:
 
     def _build_daily_trend(self, task_queryset) -> list[dict[str, Any]]:  # noqa: ANN001
         rows = (
-            task_queryset.annotate(day=TruncDate("created_at"))
+            task_queryset.annotate(day=RawSQL("DATE(created_at)", [], output_field=DateField()))
             .values("day")
             .annotate(
                 task_total=Count("id"),
@@ -385,7 +395,7 @@ class AnalyticsQueryTool:
             }
 
         trend_rows = (
-            object_queryset.annotate(day=TruncDate("record__task__created_at"))
+            object_queryset.annotate(day=Cast(F("record__task__created_at"), DateField()))
             .values("day")
             .annotate(count=Count("id"), avg_confidence=Avg("confidence"))
             .order_by("day")

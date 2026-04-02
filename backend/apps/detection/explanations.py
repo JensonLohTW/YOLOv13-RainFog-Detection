@@ -73,7 +73,7 @@ class DetectionGroundingService:
         queryset = DetectionTask.objects.select_related("image").prefetch_related(
             Prefetch(
                 "inference_records",
-                queryset=InferenceRecord.objects.prefetch_related("objects"),
+                queryset=InferenceRecord._default_manager.prefetch_related("objects"),
             )
         )
 
