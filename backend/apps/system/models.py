@@ -15,6 +15,7 @@ class SystemConfigItem(models.Model):
     config_key = models.CharField(max_length=128, unique=True)
     config_value = models.TextField()
     value_type = models.CharField(max_length=16, choices=ValueType.choices, default=ValueType.STRING)
+    is_sensitive = models.BooleanField(default=False)
     description = models.CharField(max_length=255, blank=True)
     updated_by = models.ForeignKey(
         User,

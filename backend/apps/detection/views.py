@@ -1,13 +1,22 @@
 from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from rest_framework.views import APIView
 
 from apps.media.models import ImageAsset
-from common.api.response import success_response
+from common.api.response import error_response, success_response
 
+from .explanations import DetectionExplanationError, DetectionExplanationRequest, DetectionExplanationService
 from .models import DetectionTask, InferenceRecord
-from .serializers import DetectionTaskCreateSerializer, DetectionTaskDetailSerializer, DetectionTaskListSerializer, PreprocessPreviewSerializer
+from .serializers import (
+    DetectionExplanationRequestSerializer,
+    DetectionTaskCreateSerializer,
+    DetectionTaskDetailSerializer,
+    DetectionTaskListSerializer,
+    PreprocessPreviewSerializer,
+)
 from .services import DetectionRequest, DetectionTaskService, PreprocessPreviewRequest, PreprocessPreviewService
 
 
@@ -111,3 +120,26 @@ class PreprocessPreviewView(APIView):
             "scene_debug": result.scene_debug,
             "algorithms": result.algorithms,
         })
+
+
+class DetectionExplanationView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):  # noqa: ANN001
+        serializer = DetectionExplanationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+
+        try:
+            result = DetectionExplanationService().answer(
+                DetectionExplanationRequest(
+                    task_no=payload.get("task_no", ""),
+                    image_id=payload.get("image_id"),
+                    question=payload["question"],
+                )
+            )
+        except DetectionExplanationError as exc:
+            return error_response(str(exc), code=exc.code, status=exc.status)
+
+        return success_response(result)

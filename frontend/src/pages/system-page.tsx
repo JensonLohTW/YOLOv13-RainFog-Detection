@@ -23,6 +23,17 @@ type SystemSummary = {
     port: number;
     db: number;
   };
+  llm: {
+    provider: string;
+    base_url: string;
+    model: string;
+    temperature: number;
+    max_tokens: number;
+    timeout: number;
+    api_key_configured: boolean;
+    api_key_source: string;
+    config_source: string;
+  };
   runtime: {
     health_status: string;
     service: string;
@@ -42,6 +53,10 @@ type SystemConfigItem = {
   config_value: string;
   parsed_value: string | number | boolean;
   value_type: string;
+  is_sensitive: boolean;
+  display_value: string;
+  effective_source: string;
+  has_effective_value: boolean;
   description: string;
 };
 
@@ -64,7 +79,14 @@ export function SystemPage() {
       apiPut<SystemConfigItem, { config_value: string }>(`/system/configs/${id}`, {
         config_value: value,
       }),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      startTransition(() => {
+        setDrafts((current) => {
+          const next = { ...current };
+          delete next[variables.id];
+          return next;
+        });
+      });
       void queryClient.invalidateQueries({ queryKey: ["system-configs"] });
     },
   });
@@ -109,6 +131,25 @@ export function SystemPage() {
           </p>
           <p className="mt-1 text-sm text-slate-600">DB：{data?.summary.redis.db ?? "--"}</p>
         </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 md:col-span-3">
+          <p className="text-sm text-slate-500">LLM 對話說明</p>
+          <p className="mt-2 text-lg font-medium text-slate-900">
+            {data?.summary.llm.provider ?? "--"} / {data?.summary.llm.model ?? "--"}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            Base URL：{data?.summary.llm.base_url ?? "--"}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            temperature：{data?.summary.llm.temperature ?? "--"} / max_tokens：
+            {" "}
+            {data?.summary.llm.max_tokens ?? "--"} / timeout：{data?.summary.llm.timeout ?? "--"}s
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            API Key：{data?.summary.llm.api_key_configured ? "已配置" : "未配置"} / 來源：
+            {" "}
+            {data?.summary.llm.api_key_source ?? "--"}
+          </p>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -136,10 +177,15 @@ export function SystemPage() {
               <div>
                 <p className="text-sm font-medium text-slate-900">{item.config_key}</p>
                 <p className="mt-1 text-sm text-slate-500">{item.description || "無描述"}</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  生效來源：{item.effective_source} {item.is_sensitive ? " / 敏感欄位已遮罩" : ""}
+                </p>
               </div>
               <input
                 className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm"
-                value={drafts[item.id] ?? item.config_value}
+                type={item.is_sensitive ? "password" : "text"}
+                value={drafts[item.id] ?? (item.is_sensitive ? "" : item.config_value)}
+                placeholder={item.display_value || (item.has_effective_value ? "已配置" : "未配置")}
                 onChange={(event) => {
                   const value = event.target.value;
                   startTransition(() => {
@@ -155,7 +201,7 @@ export function SystemPage() {
                     value: drafts[item.id] ?? item.config_value,
                   })
                 }
-                disabled={updateMutation.isPending}
+                disabled={updateMutation.isPending || drafts[item.id] === undefined}
               >
                 保存
               </Button>

@@ -25,3 +25,6 @@ data/
 .DS_Store
 .claude/
 .mcp.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo
