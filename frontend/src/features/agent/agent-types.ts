@@ -9,6 +9,15 @@ export type AgentTraceItem = {
 
 export type AnalyticsGrounding = {
   intent: string;
+  dsl: {
+    intent: string;
+    date_from: string;
+    date_to: string;
+    limit: number;
+    class_name: string;
+    metric: string;
+    group_by: string;
+  };
   window: {
     date_from: string;
     date_to: string;
@@ -18,7 +27,10 @@ export type AnalyticsGrounding = {
     success_total: number;
     failed_total: number;
     processing_total: number;
+    success_rate: number;
+    failure_rate: number;
   };
+  result: Record<string, unknown>;
   top_classes: Array<{
     class_name: string;
     count: number;
@@ -30,6 +42,35 @@ export type AnalyticsGrounding = {
     success_total: number;
     failed_total: number;
   }>;
+  scene_distribution: Array<{
+    weather_scene: string;
+    count: number;
+    ratio: number;
+  }>;
+  avg_confidence_ranking: Array<{
+    class_name: string;
+    count: number;
+    avg_confidence: number;
+    max_confidence: number;
+    min_confidence: number;
+  }>;
+  class_detail: {
+    class_name: string;
+    count: number;
+    avg_confidence: number;
+    max_confidence: number;
+    min_confidence: number;
+    daily_trend: Array<{
+      day: string;
+      count: number;
+      avg_confidence: number;
+    }>;
+    scene_distribution: Array<{
+      weather_scene: string;
+      count: number;
+    }>;
+  } | null;
+  available_intents: string[];
 };
 
 export type AgentAskRequest = {

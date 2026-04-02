@@ -18,6 +18,9 @@ const QUICK_QUESTIONS = [
   "近期哪些類別出現最多？",
   "最近 7 天的檢測趨勢如何？",
   "最近一週成功與失敗任務情況如何？",
+  "最近 14 天各場景分布如何？",
+  "最近 7 天 car 類別表現如何？",
+  "最近 30 天哪些類別平均置信度最高？",
 ] as const;
 
 export function DashboardPage() {
@@ -101,7 +104,7 @@ export function DashboardPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-emerald-700">Analytics Agent</p>
             <h3 className="text-lg font-medium text-slate-900">資料查詢問答</h3>
             <p className="text-sm text-slate-600">
-              目前支援近期熱門類別、趨勢變化與任務狀態摘要。
+              目前支援熱門類別、趨勢、狀態摘要、場景分布、指定類別詳情與平均置信度排行。
             </p>
           </div>
 
@@ -144,9 +147,20 @@ export function DashboardPage() {
                   <span>Provider: {analyticsAnswer.llm.provider}</span>
                   <span>Model: {analyticsAnswer.llm.model}</span>
                   <span>Intent: {analyticsAnswer.grounding.intent}</span>
+                  <span>Metric: {analyticsAnswer.grounding.dsl.metric}</span>
                 </div>
                 <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
                   {analyticsAnswer.answer}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {analyticsAnswer.trace.map((item) => (
+                    <span
+                      key={`${item.tool_name}-${item.version}`}
+                      className="rounded-full bg-white px-3 py-1 text-[11px] text-slate-500"
+                    >
+                      {item.tool_name} / {item.latency_ms} ms
+                    </span>
+                  ))}
                 </div>
               </div>
 
@@ -157,6 +171,8 @@ export function DashboardPage() {
                   <p>區間終點：{analyticsAnswer.grounding.window.date_to}</p>
                   <p>任務總數：{analyticsAnswer.grounding.status_summary.task_total}</p>
                   <p>成功任務：{analyticsAnswer.grounding.status_summary.success_total}</p>
+                  <p>成功率：{(analyticsAnswer.grounding.status_summary.success_rate * 100).toFixed(1)}%</p>
+                  <p>失敗率：{(analyticsAnswer.grounding.status_summary.failure_rate * 100).toFixed(1)}%</p>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {analyticsAnswer.grounding.top_classes.map((item) => (
@@ -168,6 +184,27 @@ export function DashboardPage() {
                     </span>
                   ))}
                 </div>
+                {analyticsAnswer.grounding.scene_distribution.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {analyticsAnswer.grounding.scene_distribution.map((item) => (
+                      <span
+                        key={item.weather_scene}
+                        className="rounded-full bg-sky-50 px-3 py-1 text-xs text-sky-700"
+                      >
+                        {item.weather_scene} / {item.count}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {analyticsAnswer.grounding.class_detail ? (
+                  <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    類別 {analyticsAnswer.grounding.class_detail.class_name}：
+                    {" "}
+                    {analyticsAnswer.grounding.class_detail.count} 次 / 平均置信度
+                    {" "}
+                    {analyticsAnswer.grounding.class_detail.avg_confidence.toFixed(2)}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : (

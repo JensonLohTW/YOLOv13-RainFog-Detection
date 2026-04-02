@@ -133,12 +133,52 @@ class MockLLMProvider(BaseLLMProvider):
     ) -> LLMResponse:
         grounding = dict((metadata or {}).get("grounding") or {})
         question = str((metadata or {}).get("question") or "").strip()
+        dsl = grounding.get("dsl") or {}
+        result = grounding.get("result") or {}
         window = grounding.get("window") or {}
         status_summary = grounding.get("status_summary") or {}
         top_classes = grounding.get("top_classes") or []
         daily_trend = grounding.get("daily_trend") or []
+        intent = str(grounding.get("intent") or dsl.get("intent") or "").strip()
 
-        if top_classes:
+        if intent == "scene_distribution":
+            items = result.get("items") or grounding.get("scene_distribution") or []
+            if items:
+                top_item = items[0]
+                conclusion = (
+                    f"在 {window.get('date_from')} 到 {window.get('date_to')} 期間，"
+                    f"最常見的場景是 {top_item['weather_scene']}，共 {top_item['count']} 筆。"
+                )
+            else:
+                conclusion = "根據目前統計資料，沒有可用的場景分布結果。"
+        elif intent == "class_detail":
+            class_name = result.get("class_name") or dsl.get("class_name") or "指定類別"
+            conclusion = (
+                f"在 {window.get('date_from')} 到 {window.get('date_to')} 期間，"
+                f"{class_name} 共出現 {result.get('count', 0)} 次，平均置信度為 {float(result.get('avg_confidence', 0.0)):.2f}。"
+            )
+        elif intent == "avg_confidence_ranking":
+            items = result.get("items") or grounding.get("avg_confidence_ranking") or []
+            if items:
+                top_item = items[0]
+                conclusion = (
+                    f"在 {window.get('date_from')} 到 {window.get('date_to')} 期間，"
+                    f"平均置信度最高的類別是 {top_item['class_name']}，平均值 {float(top_item['avg_confidence']):.2f}。"
+                )
+            else:
+                conclusion = "根據目前統計資料，沒有可用的平均置信度排行。"
+        elif intent == "trend":
+            if daily_trend:
+                first_point = daily_trend[0]
+                last_point = daily_trend[-1]
+                conclusion = (
+                    f"在 {window.get('date_from')} 到 {window.get('date_to')} 期間，"
+                    f"任務量由 {first_point['day']} 的 {first_point['task_total']} 筆，"
+                    f"變化到 {last_point['day']} 的 {last_point['task_total']} 筆。"
+                )
+            else:
+                conclusion = "根據目前統計資料，沒有可用的趨勢序列。"
+        elif top_classes:
             top_line = "、".join(
                 f"{item['class_name']}（{item['count']}）" for item in top_classes[:3] if item.get("class_name")
             )
@@ -152,6 +192,26 @@ class MockLLMProvider(BaseLLMProvider):
             f"失敗 {status_summary.get('failed_total', 0)}",
             f"處理中 {status_summary.get('processing_total', 0)}",
         ]
+        if intent == "class_detail":
+            evidence_parts.append(
+                f"指定類別 {result.get('class_name', dsl.get('class_name', '未指定'))} 出現 {result.get('count', 0)} 次"
+            )
+        if intent == "scene_distribution":
+            scene_items = result.get("items") or grounding.get("scene_distribution") or []
+            if scene_items:
+                evidence_parts.append(
+                    "場景分布為 "
+                    + "、".join(f"{item['weather_scene']} {item['count']} 筆" for item in scene_items[:4])
+                )
+        if intent == "avg_confidence_ranking":
+            items = result.get("items") or grounding.get("avg_confidence_ranking") or []
+            if items:
+                evidence_parts.append(
+                    "平均置信度排行為 "
+                    + "、".join(
+                        f"{item['class_name']} {float(item['avg_confidence']):.2f}" for item in items[:4]
+                    )
+                )
         if daily_trend:
             last_point = daily_trend[-1]
             evidence_parts.append(
