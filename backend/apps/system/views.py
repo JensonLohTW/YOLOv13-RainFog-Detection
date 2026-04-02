@@ -1,4 +1,6 @@
 from django.shortcuts import get_object_or_404
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from rest_framework.views import APIView
 
@@ -10,8 +12,8 @@ from .services import SystemConfigService
 
 
 class SystemConfigListView(APIView):
-    authentication_classes = []
-    permission_classes = []
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):  # noqa: ANN001
         service = SystemConfigService()
@@ -20,14 +22,18 @@ class SystemConfigListView(APIView):
             {
                 # 同時返回摘要與明細，前端可直接渲染儀表卡片和配置表單。
                 "summary": service.summary(),
-                "items": SystemConfigItemSerializer(items, many=True).data,
+                "items": SystemConfigItemSerializer(
+                    items,
+                    many=True,
+                    context={"system_config_service": service},
+                ).data,
             }
         )
 
 
 class SystemConfigDetailView(APIView):
-    authentication_classes = []
-    permission_classes = []
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def put(self, request, config_id):  # noqa: ANN001
         item = get_object_or_404(SystemConfigItem, pk=config_id)
@@ -38,4 +44,8 @@ class SystemConfigDetailView(APIView):
             serializer.validated_data["config_value"],
             getattr(request, "user", None),
         )
-        return success_response(SystemConfigItemSerializer(updated).data, status=status.HTTP_200_OK)
+        service = SystemConfigService()
+        return success_response(
+            SystemConfigItemSerializer(updated, context={"system_config_service": service}).data,
+            status=status.HTTP_200_OK,
+        )

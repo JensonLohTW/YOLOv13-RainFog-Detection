@@ -45,6 +45,24 @@ class PreprocessPreviewSerializer(serializers.Serializer):
         return value
 
 
+class DetectionExplanationRequestSerializer(serializers.Serializer):
+    task_no = serializers.CharField(required=False, allow_blank=True)
+    image_id = serializers.IntegerField(required=False)
+    question = serializers.CharField(max_length=500)
+
+    def validate(self, attrs):  # noqa: ANN001
+        task_no = attrs.get("task_no", "").strip()
+        image_id = attrs.get("image_id")
+        if not task_no and image_id is None:
+            raise serializers.ValidationError("Either task_no or image_id is required.")
+        return attrs
+
+    def validate_image_id(self, value):  # noqa: ANN001
+        if not ImageAsset.objects.filter(pk=value).exists():
+            raise serializers.ValidationError("Image asset does not exist.")
+        return value
+
+
 class DetectionObjectSerializer(serializers.ModelSerializer):
     bbox = serializers.SerializerMethodField()
 

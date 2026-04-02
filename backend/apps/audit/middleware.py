@@ -1,6 +1,9 @@
+import json
 import time
 
 from .models import OperationLog
+
+SENSITIVE_KEYS = {"password", "token", "api_key", "llm_api_key", "authorization"}
 
 
 class OperationLogMiddleware:
@@ -36,7 +39,8 @@ class OperationLogMiddleware:
                 if "multipart/form-data" in content_type:
                     body = "<multipart>"
                 else:
-                    body = request.body.decode("utf-8", errors="ignore")[:2000]
+                    raw_body = request.body.decode("utf-8", errors="ignore")[:2000]
+                    body = self._sanitize_body(raw_body)
 
             parts = [item for item in request.path.strip("/").split("/") if item]
             module = parts[2] if len(parts) > 2 else ""
@@ -57,3 +61,20 @@ class OperationLogMiddleware:
             )
         except Exception:
             return None
+
+    def _sanitize_body(self, raw_body: str) -> str:
+        try:
+            payload = json.loads(raw_body)
+        except json.JSONDecodeError:
+            return raw_body
+        return json.dumps(self._mask_sensitive(payload), ensure_ascii=False)[:2000]
+
+    def _mask_sensitive(self, value):  # noqa: ANN001
+        if isinstance(value, dict):
+            return {
+                key: ("***" if key.lower() in SENSITIVE_KEYS else self._mask_sensitive(item))
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._mask_sensitive(item) for item in value]
+        return value

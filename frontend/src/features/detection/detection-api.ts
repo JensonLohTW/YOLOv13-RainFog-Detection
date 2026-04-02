@@ -1,6 +1,9 @@
 import { apiGet, apiPost, apiUpload } from "@/services/api";
 
 import type {
+  DetectionExplanationRequest,
+  DetectionExplanationResponse,
+  DetectionTaskDetail,
   DetectionTaskCreatePayload,
   DetectionTaskCreateResponse,
   ImageAsset,
@@ -40,6 +43,23 @@ export function createDetectionTask(
 ): Promise<DetectionTaskCreateResponse> {
   return apiPost<DetectionTaskCreateResponse, DetectionTaskCreatePayload>(
     "/detection/tasks",
+    payload,
+  );
+}
+
+export function fetchDetectionTaskDetail(taskNo: string): Promise<DetectionTaskDetail> {
+  return apiGet<DetectionTaskDetail>(`/detection/tasks/${taskNo}`);
+}
+
+export function retryDetectionTask(taskNo: string): Promise<DetectionTaskDetail> {
+  return apiPost<DetectionTaskDetail, Record<string, never>>(`/detection/tasks/${taskNo}/retry`, {});
+}
+
+export function askDetectionExplanation(
+  payload: DetectionExplanationRequest,
+): Promise<DetectionExplanationResponse> {
+  return apiPost<DetectionExplanationResponse, DetectionExplanationRequest>(
+    "/detection/explanations",
     payload,
   );
 }
