@@ -11,4 +11,6 @@ if (-not (Test-Path $BackendEnv) -and (Test-Path $BackendEnvExample)) {
 }
 
 Set-Location (Join-Path $RepoRoot "backend")
+uv python install 3.14
+uv venv --python 3.14
 uv sync --extra yolo

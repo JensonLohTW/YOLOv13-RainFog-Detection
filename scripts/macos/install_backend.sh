@@ -13,4 +13,6 @@ if [[ ! -f "$REPO_ROOT/backend/.env" && -f "$REPO_ROOT/backend/.env.example" ]];
 fi
 
 cd "$REPO_ROOT/backend"
+uv python install 3.14
+uv venv --python 3.14
 uv sync --extra yolo
