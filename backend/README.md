@@ -5,14 +5,26 @@
 - Django：業務後台與管理 API
 - FastAPI：推理能力服務與 Mock / YOLO 適配器
 
+## 執行基線
+
+- Python：`3.14.x`
+- Django：`5.2.x`
+- MCP SDK：`1.12+`
+
+若本機尚未安裝 Python 3.14，請先安裝後再執行 `uv sync`。升級主版本後，請重新建立虛擬環境與 lockfile，避免沿用舊的 3.9 / 4.2 解析結果。
+
 ## 常用命令
 
 ```bash
 cd backend
+uv python install 3.14
+uv venv --python 3.14
 uv sync
 uv run python manage.py migrate
 uv run python manage.py runserver 0.0.0.0:8000
 uv run uvicorn inference_service.main:app --reload --host 0.0.0.0 --port 9000
+uv run uvicorn mcp_services.inference.app:app --reload --host 0.0.0.0 --port 9100
+uv run uvicorn mcp_services.training.app:app --reload --host 0.0.0.0 --port 9101
 ```
 
 ## 結構說明

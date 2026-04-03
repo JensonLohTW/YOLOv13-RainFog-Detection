@@ -1,5 +1,5 @@
-# 採用 Python 3.10-slim 輕量化底層鏡像，匹配我們要求的程式碼型別語法 (list[str] | None)
-FROM python:3.10-slim-bookworm
+# 採用 Python 3.14-slim 作為後端統一執行基線，對齊 Django 5.2 與 MCP SDK 需求
+FROM python:3.14-slim-bookworm
 
 # 設定工作目錄
 WORKDIR /app
@@ -24,7 +24,8 @@ ENV UV_SYSTEM_PYTHON=1 \
 COPY pyproject.toml uv.lock ./
 
 # 安裝後端所有依賴套件，--extra yolo 安裝 ultralytics (CUDA torch)
-RUN uv sync --frozen --no-dev --extra yolo
+# 升級 Python / Django 主版本後需重新解析依賴，因此此處不再依賴舊 lockfile 的 frozen 狀態
+RUN uv sync --no-dev --extra yolo
 
 # 將專案代碼的所有內容複製到工作目錄中
 COPY . .
