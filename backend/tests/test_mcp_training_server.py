@@ -1,14 +1,21 @@
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from asgiref.sync import sync_to_async
+
+# FastMCP calls sync tools directly in the async event loop (no thread pool).
+# Django raises SynchronousOnlyOperation when it detects a running loop.
+# This flag disables that guard for the MCP test process.
+os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 mcp = pytest.importorskip("mcp")
-from mcp import Client
+from mcp.shared.memory import create_connected_server_and_client_session
 
 from apps.training.models import TrainingDataset, TrainingJob
-from mcp_services.training.app import create_app
+from mcp_services.training.server import create_training_server
 
 
 def _extract_payload(result):
@@ -26,9 +33,9 @@ def anyio_backend():
 
 
 @pytest.mark.anyio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_training_mcp_lists_datasets():
-    TrainingDataset.objects.create(
+    await sync_to_async(TrainingDataset.objects.create)(
         name="toy-dataset",
         description="demo",
         dataset_path="/tmp/datasets/toy",
@@ -38,7 +45,9 @@ async def test_training_mcp_lists_datasets():
         status=TrainingDataset.Status.READY,
     )
 
-    async with Client(create_app(), raise_exceptions=True) as client:
+    async with create_connected_server_and_client_session(
+        create_training_server(), raise_exceptions=True
+    ) as client:
         result = await client.call_tool("list_datasets", {})
         payload = _extract_payload(result)
         assert payload["total"] == 1
@@ -46,10 +55,10 @@ async def test_training_mcp_lists_datasets():
 
 
 @pytest.mark.anyio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @patch("apps.training.services.job_service.TrainingJobService.start_job")
 async def test_training_mcp_creates_job_and_reads_resource(mock_start_job, tmp_path: Path):
-    dataset = TrainingDataset.objects.create(
+    dataset = await sync_to_async(TrainingDataset.objects.create)(
         name="ready-dataset",
         description="demo",
         dataset_path=str(tmp_path / "dataset"),
@@ -69,7 +78,9 @@ async def test_training_mcp_creates_job_and_reads_resource(mock_start_job, tmp_p
 
     mock_start_job.side_effect = fake_start_job
 
-    async with Client(create_app(), raise_exceptions=True) as client:
+    async with create_connected_server_and_client_session(
+        create_training_server(), raise_exceptions=True
+    ) as client:
         created = await client.call_tool(
             "create_training_job",
             {
